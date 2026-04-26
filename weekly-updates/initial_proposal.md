@@ -66,7 +66,7 @@ A good solution should:
 
 | Person   | Focus                                                       |
 | -------- | ----------------------------------------------------------- |
-| Spencer  | Dataset collection, annotation, baselines                   |
+| Spencer  | Dataset collection, annotation, baselines, system architecture design and evaluation                   |
 | Raina    | Feature extraction and model training                       |
 | Kory     | Interface, export pipeline, evaluation tools                |
 
