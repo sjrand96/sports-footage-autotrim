@@ -7,7 +7,7 @@ End-to-end flow: **YouTube → clips on S3 + DB → Label Studio → annotations
 1. **Machine tools:** `brew install yt-dlp ffmpeg` (or equivalent).
 2. **Python:** repo root → create a venv, then `pip install -e .` (uses [pyproject.toml](../../pyproject.toml) for boto3, supabase, dotenv, etc.).
 3. **`.env`:** copy the template file shared on **WhatsApp** into `.env` in the repo root and fill in values (shared AWS + Supabase credentials, your personal **`ANNOTATOR_NAME`**, etc.). `prep_videos.py` and `push_annotations.py` both read it via `python-dotenv`.
-4. **Label Studio:** install and run locally (e.g. `label-studio` or Docker). You will need a **video + timeline** project and **S3** source storage for the team bucket; prefix per video is `clips/{source_id}/`. A **more detailed Label Studio configuration guide** will be provided separately. Until then, high-level layout and credentials notes live in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
+4. **Label Studio:** follow [label-studio-setup.md](label-studio-setup.md) (venv, project XML, S3 storage with prefix `clips/{source_id}/`). High-level layout and credentials: [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
 
 Supabase **tables already exist** for this project — no SQL bootstrap step for collaborators.
 

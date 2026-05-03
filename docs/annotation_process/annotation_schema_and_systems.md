@@ -243,7 +243,8 @@ sports-footage-autotrim/
 ├── docs/
 │   ├── annotation_process/
 │   │   ├── workflow_overview.md             # setup + per-video steps + diagram
-│   │   └── annotation_schema_and_systems.md  # this document
+│   │   ├── label-studio-setup.md            # local LS install, S3, template XML
+│   │   └── annotation_schema_and_systems.md # this document
 │   └── schema.md                            # executable SQL only (DDL)
 ├── pyproject.toml                           # pipeline deps (boto3, supabase, …)
 ├── requirements.txt                         # optional notebook / CV stack
