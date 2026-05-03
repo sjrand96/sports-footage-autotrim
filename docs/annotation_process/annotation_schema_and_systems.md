@@ -210,8 +210,6 @@ python scripts/push_annotations.py /path/to/export.json --dry-run   # no DB writ
 
 Re-exporting and re-running after you **edit** the same task in Label Studio still **skips** that task until you delete the existing Supabase row or change annotator — by design for strict one row per task per annotator. To replace labels, delete the old annotation row in Supabase (or add a future “force” flag).
 
-**Optional later:** a second mode could call the Label Studio REST API instead of a file (`LABEL_STUDIO_URL`, `LABEL_STUDIO_API_KEY`, `LABEL_STUDIO_PROJECT_ID`); not required for the file-based workflow.
-
 Concurrent runs by different collaborators are safe: each uses their own `ANNOTATOR_NAME`, so distinct rows for the same clip/task are allowed when intended.
 
 ## Credentials
@@ -229,16 +227,11 @@ S3_BUCKET=sports-footage-autotrim-bucket
 
 # Personal — each collaborator fills in their own
 ANNOTATOR_NAME=<your handle, e.g. spencer>
-
-# Optional — only if you add REST-based tools later
-LABEL_STUDIO_URL=http://localhost:8080
-LABEL_STUDIO_API_KEY=<from local Label Studio account settings>
-LABEL_STUDIO_PROJECT_ID=<integer, from local LS project URL>
 ```
 
 - AWS: one IAM user (`volleyball-pipeline`) with read/write to the bucket. Same credentials used by everyone's prep script and everyone's local Label Studio S3 connection.
 - Supabase: service role key. Bypasses RLS, full table access. Acceptable because the `.env` is shared only with trusted collaborators.
-- Label Studio: each person has their own local instance. **`push_annotations.py` only needs a JSON file export** — no LS API token required for that path. API key / project id are for optional future automation.
+- Label Studio: each person runs their own instance and uses the UI; **`prep_videos.py` and `push_annotations.py` do not read any Label Studio URL or API key** — only the JSON export file for push. If you later add a script that calls the Label Studio REST API, you would introduce those variables then.
 
 If a collaborator leaves: rotate the IAM access key and Supabase service key, redistribute shared `.env` values. Their local Label Studio instance has no shared state to revoke.
 
