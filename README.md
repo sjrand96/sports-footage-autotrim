@@ -7,6 +7,7 @@
 | Path | What it is |
 |------|------------|
 | [docs/annotation_process/workflow_overview.md](docs/annotation_process/workflow_overview.md) | **Start here for day-to-day work:** one-time setup, ingest → Label Studio → export → push to DB, flow diagram |
+| [docs/annotation_process/label-studio-setup.md](docs/annotation_process/label-studio-setup.md) | Local Label Studio: venv, project template, S3 prefix per `source_id` |
 | [docs/annotation_process/annotation_schema_and_systems.md](docs/annotation_process/annotation_schema_and_systems.md) | Architecture: S3 layout, Supabase tables (semantics), credentials, reprocessing, workflows W1–W3 |
 | [docs/schema.md](docs/schema.md) | Executable **SQL** for Supabase (DDL only) |
 | [weekly-updates/](weekly-updates/) | **Project scope, roadmap, milestones, evaluation** (e.g. [initial_proposal.md](weekly-updates/initial_proposal.md)) |
