@@ -1,5 +1,7 @@
 # Based around Python 3.12, copied from a previous computer vision project as a useful starting point
 
+supabase 
+
 # Core scientific computing
 numpy>=1.24.0
 scipy>=1.7.0
