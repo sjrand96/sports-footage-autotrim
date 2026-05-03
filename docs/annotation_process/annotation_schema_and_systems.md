@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A shared system for downloading volleyball footage from YouTube, segmenting it into uniform clips, annotating temporal segments (Playing / Downtime), and tracking everything in a queryable database.
+A shared system for downloading volleyball footage from YouTube, segmenting it into uniform clips, labeling **Playing** segments in Label Studio (unlabeled timeline = **downtime**), and tracking everything in a queryable database.
 
 Designed for a small team of technical collaborators (CS master's students) sharing AWS and Supabase credentials, but each running Label Studio locally.
 
@@ -43,7 +43,7 @@ YouTube URL
        │  syncs, annotates
        ▼
 [push_annotations.py]
-       │  reads from local Label Studio API
+       │  reads Label Studio JSON export
        │  resolves S3 URL → clip_id via Supabase lookup
        │  stamps with ANNOTATOR_NAME from env
        ▼
@@ -79,56 +79,22 @@ All clips are normalized to identical encoding properties so Label Studio's fram
 - Frame rate: constant 30 fps
 - Segment length: 60 seconds (last clip may be shorter)
 
-## Database schema
+## Database tables
 
-```sql
-create table source_videos (
-  id              text primary key,           -- YouTube video ID
-  url             text not null,
-  display_name    text,
-  duration_sec    numeric,
-  fps_original    numeric,
-  downloaded_at   timestamptz default now(),
-  downloaded_by   text
-);
+Three tables:
 
-create table clips (
-  id                  bigserial primary key,
-  source_id           text references source_videos(id) on delete cascade,
-  clip_index          int not null,
-  filename            text not null,
-  s3_bucket           text not null,
-  s3_key              text not null,
-  thumbnail_s3_key    text,                     -- e.g. clips/{id}/{id}_001.jpg (nullable)
-  start_sec           numeric not null,
-  end_sec             numeric not null,
-  duration_sec        numeric not null,
-  uploaded_at         timestamptz default now(),
-  unique (source_id, clip_index)
-);
+- **`source_videos`** — one row per ingested YouTube video (`id` = video id).
+- **`clips`** — one row per 1-minute segment (`source_id`, `clip_index`), S3 keys, optional thumbnail key, timing fields.
+- **`annotations`** — rows written by `push_annotations.py` (`clip_id` FK, Label Studio ids, `annotator`, `lead_time_sec`, `payload` JSON).
 
-create table annotations (
-  id                       bigserial primary key,
-  clip_id                  bigint references clips(id) on delete cascade,
-  label_studio_task_id     bigint,
-  label_studio_project_id  bigint,
-  annotator                text not null,            -- ANNOTATOR_NAME from env
-  lead_time_sec            numeric,
-  exported_at              timestamptz default now(),
-  payload                  jsonb not null
-);
+**Executable DDL** (creates tables and indexes; idempotent `IF NOT EXISTS`): use [schema.md](../schema.md) — paste into the Supabase SQL Editor when bootstrapping a new project. For collaborators on an existing project, tables are already present; this file is the reference when migrations are needed.
 
-create index on clips (source_id);
-create index on annotations (clip_id);
-create index on annotations (annotator);
-```
+Semantics:
 
-Notes:
-
-- `source_videos.id` is the YouTube ID directly (text, not a serial). Cleaner joins and lookups by URL.
-- `annotations.payload` stores the raw Label Studio JSON for the task. Lets us evolve label schemas without DB migrations.
-- `annotations.annotator` is required and stamped from each collaborator's `ANNOTATOR_NAME` env var. This is the only way to know whose work an annotation represents — Label Studio's internal annotator ID is always `1` since each person runs their own instance.
-- Multiple annotations per clip are allowed and expected (different annotators, repeated labeling sessions). Each export produces a new row.
+- `source_videos.id` is the YouTube ID (text), not a serial — straightforward joins from URLs and paths.
+- `annotations.payload` stores a JSON object with `label_studio_task` and `label_studio_annotation` (full export context for the pushed row). Evolves without schema migrations when the LS export shape changes.
+- `annotations.annotator` is set from each collaborator’s `ANNOTATOR_NAME` in `.env` — local Label Studio’s internal user id is not distinctive across machines.
+- Multiple rows per `clip_id` are normal (different annotators or re-pushes). `push_annotations.py` skips inserting a duplicate for the same `(clip_id, label_studio_task_id, annotator)`; otherwise each run can add new rows.
 
 ## S3 layout
 
@@ -178,7 +144,7 @@ Status values: `Available`, `Claimed`, `Annotating`, `Done`, `Issues`.
 1. Someone runs `scripts/prep_videos.py` to download, segment, and upload a new video. They add a row to the sheet with status `Available`.
 2. An annotator picks an `Available` row, changes status to `Claimed` with their name in `Assignee`, sets `Started` date.
 3. They configure their local Label Studio's S3 source storage prefix to `clips/{source_id}/`, click Sync. Status moves to `Annotating`.
-4. They annotate all clips for that source.
+4. They annotate all clips for that source (Playing-only convention; see [workflow_overview.md](workflow_overview.md)).
 5. They export JSON and run `python scripts/push_annotations.py export.json`. Status moves to `Done`, `Finished` date is filled in.
 
 ### Conflict avoidance
@@ -218,7 +184,7 @@ Each collaborator does this in their own local Label Studio:
 2. In local Label Studio: Project → Settings → Cloud Storage → Edit S3 source storage → set Bucket Prefix to `clips/{source_id}/`
 3. Click Sync
 4. Tasks for that source's clips appear
-5. Annotate all of them
+5. Annotate all tasks (convention: **Playing** regions only; unlabeled = downtime — see [workflow_overview.md](workflow_overview.md))
 6. Export JSON from Label Studio (Data Manager → Export → **JSON**), then run `push_annotations.py` (below)
 7. Mark `Done` in the sheet
 
@@ -282,16 +248,17 @@ If a collaborator leaves: rotate the IAM access key and Supabase service key, re
 sports-footage-autotrim/
 ├── README.md
 ├── docs/
-│   ├── annotation_guide.md              # manual ffmpeg/yt-dlp equivalent of prep
-│   ├── annotation_schema_and_systems.md   # this document
-│   └── schema.md                        # SQL aligned with Supabase (source of truth)
-├── pyproject.toml                       # pipeline deps (boto3, supabase, …)
-├── requirements.txt                     # optional notebook / CV stack
+│   ├── annotation_process/
+│   │   ├── workflow_overview.md             # setup + per-video steps + diagram
+│   │   └── annotation_schema_and_systems.md  # this document
+│   └── schema.md                            # executable SQL only (DDL)
+├── pyproject.toml                           # pipeline deps (boto3, supabase, …)
+├── requirements.txt                         # optional notebook / CV stack
 ├── src/
-│   └── db.py                            # Supabase helpers (prep + push)
+│   └── db.py                                # Supabase helpers (prep + push)
 ├── scripts/
-│   ├── prep_videos.py                   # W1: download, segment, S3, Supabase
-│   └── push_annotations.py              # W3: LS JSON export → Supabase
+│   ├── prep_videos.py                       # W1: download, segment, S3, Supabase
+│   └── push_annotations.py                  # W3: LS JSON export → Supabase
 └── ...
 ```
 

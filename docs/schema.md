@@ -1,4 +1,7 @@
--- Sports Footage Autotrim — Database Schema
+-- Sports Footage Autotrim — Database Schema (canonical DDL)
+--
+-- Column semantics, S3 layout, and how prep/push use these tables:
+--   docs/annotation_process/annotation_schema_and_systems.md
 --
 -- Run this in the Supabase SQL Editor on a fresh project to create all tables.
 -- Idempotent: safe to re-run; uses IF NOT EXISTS where possible.
