@@ -216,7 +216,9 @@ Origin under the net center. X along the net, Y along the long court axis, units
 | Far attack line endpoints | (±4.5, 3.0) |
 | Near attack line endpoints | (±4.5, -3.0) |
 | Centerline endpoints | (±4.5, 0) |
-| Net post bases | (±5.0, 0) |
+| Net post bases (on the floor plane) | (±5.5, 0) |
+
+Values follow FIVB Official Volleyball Rules (2025–2028 §1 playing court layout, §1.3 attack line 3 m from centre-line axis; net posts **1 m outside the side lines** for FIVB World & Official Competitions §2.5.1—the stricter interpretation of the generic 0.50–1.00 m range). Executable copy for homography tooling: [cv-pipeline/calibration/fivb_court_geometry.txt](calibration/fivb_court_geometry.txt).
 
 Net post tops add Z = 2.43m if you decide to extend to 3D later. Pin down whether you're using the inner or outer edge of the line for "the corner" and stick to the convention.
 
