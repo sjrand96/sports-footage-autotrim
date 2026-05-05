@@ -2,9 +2,9 @@
 thumbnails, upload everything to S3, and write metadata to Supabase.
 
 Usage:
-    python scripts/prep_videos.py <youtube_url> [--display-name "Game name"]
-                                               [--force]
-                                               [--software-encode]
+    python data_labeling/prep_videos.py <youtube_url> [--display-name "Game name"]
+                                                   [--force]
+                                                   [--software-encode]
 
 Environment variables required (from .env):
     AWS_ACCESS_KEY_ID
@@ -30,24 +30,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import boto3
-from botocore.exceptions import ClientError
-from dotenv import load_dotenv
-
-# Make src importable when running from repo root
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from src import db  # noqa: E402
-
-# -------------------- Configuration --------------------
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 WORKDIR_ROOT = Path("./workdir")
 CLIP_DURATION_SEC = 60
 TARGET_FPS = 30
 THUMBNAIL_OFFSET_FRACTION = 0.5  # middle of clip
 YT_DLP_FORMAT = "299+140"  # 1080p60 H.264 + m4a audio (strict)
-
-
-# -------------------- Data classes --------------------
 
 
 @dataclass
@@ -68,9 +58,6 @@ class ClipInfo:
         return self.thumbnail_path.name
 
 
-# -------------------- Helpers --------------------
-
-
 def log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -80,31 +67,25 @@ def step(label: str) -> None:
 
 
 def run(cmd: list[str], *, capture: bool = False) -> subprocess.CompletedProcess:
-    """Run a subprocess, raising on non-zero exit."""
     if capture:
         return subprocess.run(cmd, check=True, capture_output=True, text=True)
     return subprocess.run(cmd, check=True)
 
 
 def extract_youtube_id(url: str) -> str:
-    """Pull the 11-char video ID out of any YouTube URL."""
     parsed = urlparse(url)
-    # https://www.youtube.com/watch?v=VIDEO_ID
     if parsed.hostname and "youtube.com" in parsed.hostname:
         qs = parse_qs(parsed.query)
         if "v" in qs:
             return qs["v"][0]
-    # https://youtu.be/VIDEO_ID
     if parsed.hostname == "youtu.be":
         return parsed.path.lstrip("/")
-    # Sometimes people paste a bare ID
     if re.fullmatch(r"[A-Za-z0-9_-]{11}", url):
         return url
     raise ValueError(f"Could not extract a YouTube video ID from: {url}")
 
 
 def has_videotoolbox() -> bool:
-    """Check whether ffmpeg supports h264_videotoolbox encoder."""
     result = subprocess.run(
         ["ffmpeg", "-hide_banner", "-encoders"],
         capture_output=True,
@@ -115,7 +96,6 @@ def has_videotoolbox() -> bool:
 
 
 def ffprobe_duration(path: Path) -> float:
-    """Return duration of a media file in seconds."""
     result = run(
         [
             "ffprobe",
@@ -133,7 +113,6 @@ def ffprobe_duration(path: Path) -> float:
 
 
 def ffprobe_fps(path: Path) -> float | None:
-    """Return frame rate of a video file, or None if it can't be parsed."""
     result = run(
         [
             "ffprobe",
@@ -163,7 +142,6 @@ def ffprobe_fps(path: Path) -> float | None:
 
 
 def write_middle_frame_thumbnail(clip_path: Path, duration: float) -> Path:
-    """Extract one JPEG at the middle of the clip. Overwrites if present."""
     thumb_path = clip_path.with_suffix(".jpg")
     thumb_offset = duration * THUMBNAIL_OFFSET_FRACTION
     run(
@@ -185,13 +163,8 @@ def write_middle_frame_thumbnail(clip_path: Path, duration: float) -> Path:
     return thumb_path
 
 
-# -------------------- Pipeline steps --------------------
-
-
 def download_source(url: str, source_id: str, dest: Path, force: bool) -> Path:
-    """Run yt-dlp to download the source video. Returns the file path."""
     output_path = dest / f"{source_id}.mp4"
-
     if output_path.exists() and not force:
         size_mb = output_path.stat().st_size / (1024 * 1024)
         log(f"Source already downloaded ({size_mb:.1f} MB), skipping. (use --force to redo)")
@@ -216,7 +189,7 @@ def download_source(url: str, source_id: str, dest: Path, force: bool) -> Path:
         raise RuntimeError(
             f"yt-dlp failed (likely missing format {YT_DLP_FORMAT} for this video).\n"
             f"To see available formats, run: yt-dlp -F '{url}'\n"
-            f"This video may not have a 1080p60 H.264 stream — try a different one."
+            "This video may not have a 1080p60 H.264 stream — try a different one."
         ) from e
 
     return output_path
@@ -230,10 +203,6 @@ def segment_and_thumbnail(
     use_videotoolbox: bool,
     force: bool,
 ) -> list[ClipInfo]:
-    """Re-encode source to 30fps and split into 60-second clips, plus extract a
-    middle-frame thumbnail for each clip. Returns a list of ClipInfo."""
-
-    # If clips already exist and we're not forcing, return their info
     existing = sorted(clips_dir.glob(f"{source_id}_*.mp4"))
     if existing and not force:
         log(f"Found {len(existing)} existing clips locally, reusing. (use --force to redo)")
@@ -257,13 +226,11 @@ def segment_and_thumbnail(
             )
         return clips
 
-    # Clear the clips directory before generating fresh ones
     if clips_dir.exists():
         for f in clips_dir.glob(f"{source_id}_*"):
             f.unlink()
     clips_dir.mkdir(parents=True, exist_ok=True)
 
-    # Pick encoder
     if use_videotoolbox:
         log("Using hardware-accelerated encoder: h264_videotoolbox")
         video_codec_args = [
@@ -318,14 +285,12 @@ def segment_and_thumbnail(
     clip_paths = sorted(clips_dir.glob(f"{source_id}_*.mp4"))
     log(f"Generated {len(clip_paths)} clips")
 
-    # Generate thumbnails
     log("Generating thumbnails (middle frame per clip)")
     clips: list[ClipInfo] = []
     for clip_path in clip_paths:
         idx = int(clip_path.stem.rsplit("_", 1)[1])
         duration = ffprobe_duration(clip_path)
         thumb_path = write_middle_frame_thumbnail(clip_path, duration)
-
         clips.append(
             ClipInfo(
                 index=idx,
@@ -336,12 +301,12 @@ def segment_and_thumbnail(
                 duration_sec=duration,
             )
         )
-
     return clips
 
 
 def s3_object_size(s3, bucket: str, key: str) -> int | None:
-    """Return the size of an S3 object in bytes, or None if it doesn't exist."""
+    from botocore.exceptions import ClientError
+
     try:
         resp = s3.head_object(Bucket=bucket, Key=key)
         return resp["ContentLength"]
@@ -352,15 +317,13 @@ def s3_object_size(s3, bucket: str, key: str) -> int | None:
 
 
 def upload_if_needed(s3, bucket: str, local_path: Path, s3_key: str, force: bool) -> bool:
-    """Upload local_path to s3://bucket/s3_key if missing or size differs.
-    Returns True if uploaded, False if skipped."""
     local_size = local_path.stat().st_size
     if not force:
         remote_size = s3_object_size(s3, bucket, s3_key)
         if remote_size == local_size:
             return False
 
-    extra = {}
+    extra: dict[str, str] = {}
     if local_path.suffix.lower() == ".mp4":
         extra["ContentType"] = "video/mp4"
     elif local_path.suffix.lower() == ".jpg":
@@ -371,7 +334,6 @@ def upload_if_needed(s3, bucket: str, local_path: Path, s3_key: str, force: bool
 
 
 def upload_source(s3, bucket: str, source_path: Path, source_id: str, force: bool) -> str:
-    """Upload the source video to s3://bucket/sources/{source_id}.mp4. Returns the key."""
     key = f"sources/{source_id}.mp4"
     uploaded = upload_if_needed(s3, bucket, source_path, key, force)
     log(f"  source: {'uploaded' if uploaded else 'already present'} ({key})")
@@ -381,7 +343,6 @@ def upload_source(s3, bucket: str, source_path: Path, source_id: str, force: boo
 def upload_clips(
     s3, bucket: str, clips: list[ClipInfo], source_id: str, force: bool
 ) -> list[tuple[ClipInfo, str, str]]:
-    """Upload all clips and thumbnails. Returns (clip, clip_s3_key, thumb_s3_key) tuples."""
     out = []
     for c in clips:
         clip_key = f"clips/{source_id}/{c.filename}"
@@ -410,7 +371,8 @@ def write_db_rows(
     clips_with_keys: list[tuple[ClipInfo, str, str]],
     s3_bucket: str,
 ) -> None:
-    """Upsert source_videos row and clips rows."""
+    from src import db
+
     db.upsert_source_video(
         supabase,
         source_id=source_id,
@@ -438,10 +400,9 @@ def write_db_rows(
     log(f"  clips rows upserted: {len(clips_with_keys)}")
 
 
-# -------------------- Main --------------------
-
-
 def main() -> int:
+    from dotenv import load_dotenv
+
     parser = argparse.ArgumentParser(
         description="Download a YouTube video, segment to 60s/30fps clips, upload to S3, write metadata to Supabase."
     )
@@ -455,7 +416,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Load env
     load_dotenv()
     required_env = [
         "AWS_ACCESS_KEY_ID",
@@ -473,7 +433,6 @@ def main() -> int:
     s3_bucket = os.environ["S3_BUCKET"]
     downloaded_by = os.environ.get("ANNOTATOR_NAME") or os.environ.get("USER")
 
-    # Resolve identifiers
     source_id = extract_youtube_id(args.url)
     canonical_url = f"https://www.youtube.com/watch?v={source_id}"
     log(f"Source ID: {source_id}")
@@ -481,15 +440,18 @@ def main() -> int:
     if args.display_name:
         log(f"Display name: {args.display_name}")
 
-    # Encoder choice
     use_videotoolbox = not args.software_encode and has_videotoolbox()
     if args.software_encode:
         log("Encoder: libx264 (forced via --software-encode)")
     elif not use_videotoolbox:
         log("Encoder: libx264 (h264_videotoolbox not available)")
 
-    # Clients
+    from src import db
+
     supabase = db.get_supabase_client()
+
+    import boto3
+
     s3 = boto3.client(
         "s3",
         region_name=os.environ["AWS_REGION"],
@@ -497,7 +459,6 @@ def main() -> int:
         aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
     )
 
-    # Reprocessing prompt
     existing_source = db.get_source_video(supabase, source_id)
     if existing_source and not args.force:
         log(
@@ -507,20 +468,17 @@ def main() -> int:
         )
         log("Idempotent re-run will skip already-completed steps. Use --force to redo all work.")
 
-    # Workdir
     workdir = WORKDIR_ROOT / source_id
     workdir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Download
-    step(f"[1/4] Download source video")
+    step("[1/4] Download source video")
     source_path = download_source(canonical_url, source_id, workdir, args.force)
     source_duration = ffprobe_duration(source_path)
     source_fps = ffprobe_fps(source_path)
     fps_str = f"{source_fps:.2f}" if source_fps is not None else "unknown"
     log(f"Source: {source_duration:.1f}s, {fps_str} fps")
 
-    # 2. Segment + thumbnails
-    step(f"[2/4] Segment into 60s/30fps clips and generate thumbnails")
+    step("[2/4] Segment into 60s/30fps clips and generate thumbnails")
     clips = segment_and_thumbnail(
         source_path,
         source_id,
@@ -530,13 +488,11 @@ def main() -> int:
     )
     log(f"Total clips: {len(clips)}")
 
-    # 3. Upload to S3
     step(f"[3/4] Upload to s3://{s3_bucket}/")
     upload_source(s3, s3_bucket, source_path, source_id, args.force)
     clips_with_keys = upload_clips(s3, s3_bucket, clips, source_id, args.force)
 
-    # 4. Write to Supabase
-    step(f"[4/4] Write metadata to Supabase")
+    step("[4/4] Write metadata to Supabase")
     write_db_rows(
         supabase=supabase,
         source_id=source_id,
@@ -549,22 +505,22 @@ def main() -> int:
         s3_bucket=s3_bucket,
     )
 
-    # Cleanup
     step("Cleanup")
     shutil.rmtree(workdir)
     log(f"Removed {workdir}")
 
     log("\n✓ Done.")
-    log(f"\nNext steps:")
-    log(f"  1. Add a row to the coordination sheet:")
+    log("\nNext steps:")
+    log("  1. Add a row to the coordination sheet:")
     log(f"     Source ID: {source_id}")
     log(f"     Display name: {args.display_name or '(none)'}")
-    log(f"     Status: Available")
-    log(f"  2. In your local Label Studio:")
+    log("     Status: Available")
+    log("  2. In your local Label Studio:")
     log(f"     Project Settings → Cloud Storage → set Bucket Prefix to clips/{source_id}/")
-    log(f"     Click Sync to pull tasks for this source.")
+    log("     Click Sync to pull tasks for this source.")
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

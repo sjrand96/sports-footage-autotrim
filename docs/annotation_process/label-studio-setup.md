@@ -60,27 +60,136 @@ To stop Label Studio later: `Ctrl+C` in the terminal. To restart: re-activate th
 - **`timelineHeight="100"`** makes the timeline panel taller (default is 64). Much more comfortable to drag on.
 - **`name="videoLabels"`** is the field name that will appear in your exported JSON. Keep this consistent across collaborators so the push script works.
 
+## 2b. Optional: court keypoints project (homography)
+
+This is **separate** from **Volleyball Action Labels**. Timeline tasks use `$video` and are synced from `.mp4` objects; keypoint tasks use `$image`. You reuse the **same bucket and `clips/{source_id}/` prefix** as the video project—`data_labeling/prep_videos.py` uploads a `.jpg` next to each clip (middle-frame still, same resolution as the clip). Point this project’s S3 storage at those JPEGs with an image-only filename filter so tasks sync the same way as clips. Use this when you need a reference frame for court calibration (see Phase 1 in [cv-pipeline/cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)).
+
+Exports from this project are **not** ingested by `data_labeling/push_annotations.py` (that script only understands clip `.mp4` URLs). Use `data_labeling/court_keypoints.py` to parse an export into stable JSON payloads, then fit homography with `cv-pipeline/calibration/court_homography.py` (writes `cv-pipeline/calibration/out/homography.npz`; see Phase 1 in [cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)).
+
+### Create the project
+
+- Click **Create**
+- **Project Name**: e.g. `Volleyball Court Keypoints`
+- Skip **Cloud Storage** until the next subsection (unless you combine setup order however you prefer)
+- **Labeling Setup** → **Custom template** → paste:
+
+```xml
+<View>
+  <Header value="Still is middle-of-clip from prep — use the synced task where the court is clearest. One point per label (skip off-screen/occluded). Line intersections; net posts at floor and top."/>
+  <Image name="img" value="$image" zoom="true" zoomControl="true"/>
+  <KeyPointLabels name="kp" toName="img" strokeWidth="3">
+    <Label value="far_baseline_left" background="#E60026"/>
+    <Label value="far_baseline_right" background="#FF7F00"/>
+    <Label value="near_baseline_left" background="#FFD700"/>
+    <Label value="near_baseline_right" background="#A0522D"/>
+    <Label value="far_attack_left" background="#00C04B"/>
+    <Label value="far_attack_right" background="#006837"/>
+    <Label value="near_attack_left" background="#00CED1"/>
+    <Label value="near_attack_right" background="#1E3A8A"/>
+    <Label value="centerline_left" background="#8A2BE2"/>
+    <Label value="centerline_right" background="#FF1493"/>
+    <Label value="net_post_base_left" background="#000000"/>
+    <Label value="net_post_base_right" background="#808080"/>
+    <Label value="net_post_top_left" background="#4B0082"/>
+    <Label value="net_post_top_right" background="#FFFFFF"/>
+  </KeyPointLabels>
+</View>
+```
+
+- **Save**
+
+### Sync reference frames from S3 (recommended)
+
+The prep script already writes `{source_id}_{index}.jpg` alongside each `{source_id}_{index}.mp4` under `clips/{source_id}/`.
+
+**Volleyball Court Keypoints** → **Settings → Cloud Storage → Add Source Storage → Amazon S3**, then:
+
+**Step 1 — Configure Connection** (same bucket and auth as clip labeling; see [§3 → Values at a glance](#values-at-a-glance)):
+
+| Field | Value |
+|---|---|
+| **Storage Title** | any (e.g. `Court thumbnails`, `Volleyball Db`) |
+| **Bucket Name** | `sports-footage-autotrim-bucket` |
+| **Region Name** | `us-west-2` |
+| **S3 Endpoint** | default — leave blank, or `https://s3.amazonaws.com` |
+| **Access Key ID** / **Secret Access Key** | from `.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) |
+| **Session Token** | leave blank |
+| **Use pre-signed URLs** | **On** |
+| **Expire pre-signed URLs (minutes)** | `15` |
+
+**Step 2 — Import Settings & Preview**
+
+| Field | Value |
+|---|---|
+| **Bucket Prefix** | `clips/{source_id}/` (same rule as clips: real YouTube id, e.g. `clips/jZ18INu4LQc/`) |
+| **Import Method** | **Files - Automatically creates a task for each storage object** |
+| **File Name Filter** | `.*\.jpg$` (only JPEGs—**not** `.mp4`) |
+| **Scan all sub-folders** | **enabled** |
+
+**Step 3** → **Save**, then **Sync Storage** on the Cloud Storage page.
+
+You get **one labeling task per clip thumbnail**—same ordering as clips. Prefer the task whose middle frame shows the clearest court (or annotate multiple clips if you need several homographies).
+
+If **Data Manager** previews look wrong or keypoints UI won’t attach to the canvas, open a task’s raw data and confirm the field is **`image`** (the template binds `$image` to that).
+
+### Fallback: manual still
+
+If thumbnails are missing or you need a timestamp that is not mid-clip: extract locally and **Import → upload**.
+
+`ffmpeg -ss 5 -i path/to/{source_id}_000.mp4 -frames:v 1 -q:v 2 court_ref.jpg`
+
+Adjust `-ss` as needed.
+
+### Annotate
+
+Open a task → select each label in the sidebar → click the matching spot → **Submit** when all **visible** points are placed (skip labels whose features are out of frame).
+
+### What each label means
+
+Naming is **camera-relative**: “far” is the far end of the court from the camera, “near” is the close end. Left/right are as seen on screen.
+
+| Label | Court feature |
+|------|----------------|
+| `far_baseline_left`, `far_baseline_right` | Far baseline where it meets the sidelines |
+| `near_baseline_left`, `near_baseline_right` | Near baseline where it meets the sidelines |
+| `far_attack_left`, `far_attack_right` | Far attack line at the sidelines |
+| `near_attack_left`, `near_attack_right` | Near attack line at the sidelines |
+| `centerline_left`, `centerline_right` | Center line (under the net) at the sidelines |
+| `net_post_base_left`, `net_post_base_right` | Net post where it meets the floor |
+| `net_post_top_left`, `net_post_top_right` | Top of the net post (or net–post junction), same left/right as the bases |
+
+Canonical meters-based coordinates for these points are documented in [cv-pipeline/cv_pipeline.md](../../cv-pipeline/cv_pipeline.md) (Phase 1a). Match the same corner/edge convention the team uses there.
+
 ## 3. Connect S3 source storage
 
 Now point Label Studio at the shared S3 bucket. This is a multi-step wizard.
+
+### Values at a glance
+
+Use these everywhere Label Studio asks for bucket settings (clip project, court-thumbnail project, tests):
+
+| | |
+|---|---|
+| **Bucket Name** | `sports-footage-autotrim-bucket` |
+| **Region Name** | `us-west-2` |
+| **S3 Endpoint** | **Default** — leave blank; the UI may show `https://s3.amazonaws.com (default)`. If you must type an endpoint, use `https://s3.amazonaws.com` |
+| **Access Key ID** | paste from repo `.env`: `AWS_ACCESS_KEY_ID` |
+| **Secret Access Key** | paste from repo `.env`: `AWS_SECRET_ACCESS_KEY` |
+| **Session Token** | leave **empty** |
+| **Use pre-signed URLs** | **On** |
+| **Expire pre-signed URLs (minutes)** | `15` |
+| **Bucket Prefix** (Step 2) | `clips/{source_id}/` with the real 11-character YouTube id, e.g. `clips/jZ18INu4LQc/` |
+| **Import Method** (Step 2) | **Files - Automatically creates a task for each storage object** |
+| **Scan all sub-folders** (Step 2) | **enabled** |
+| **File Name Filter** (Step 2) | **Video project:** `.*\.mp4$` — **Court keypoints project:** `.*\.jpg$` (see [§2b](#2b-optional-court-keypoints-project-homography)) |
+
+**Storage Title** is only a label in your UI (e.g. `Volleyball Clips`, `Court thumbnails`, `Volleyball Db`).
 
 ### 3a. Step 1 — Configure Connection
 
 - **Project → Settings → Cloud Storage → Add Source Storage**
 - Select **Amazon S3** as the storage type
-- Fill in:
-
-| Field | Value |
-|---|---|
-| **Storage Title** | `Volleyball Clips` (or any name — just for your reference) |
-| **Bucket Name** | `sports-footage-autotrim-bucket` |
-| **Region Name** | `us-west-2` |
-| **S3 Endpoint** | leave blank (default) |
-| **Access Key ID** | from your `.env` (`AWS_ACCESS_KEY_ID`) |
-| **Secret Access Key** | from your `.env` (`AWS_SECRET_ACCESS_KEY`) |
-| **Session Token** | leave blank |
-| **Use pre-signed URLs** | ✅ **leave ON** (the default) |
-| **Expire pre-signed URLs (minutes)** | `15` (default is fine) |
+- Fill in **Step 1** of the wizard to match [Values at a glance](#values-at-a-glance) (same fields as **Edit Source Storage**: bucket, region, endpoint, keys, pre-signed **On**, expire **15**)
 
 About pre-signed URLs: even though the bucket is publicly readable, we leave this **on** because it's the default and avoids any browser-cache or CORS edge cases. Each time you open a clip to label, Label Studio generates a short-lived signed URL on the fly. It works the same way for the labeler — clips just stream from S3.
 
@@ -178,7 +287,7 @@ After you **submit** tasks and **Export → JSON** from Label Studio, from the r
 ```
 cd path/to/sports-footage-autotrim
 source .venv/bin/activate
-python scripts/push_annotations.py /path/to/your-export.json
+python data_labeling/push_annotations.py /path/to/your-export.json
 ```
 
 Optional: `--dry-run` first. See [workflow_overview.md](workflow_overview.md) and W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).

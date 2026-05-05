@@ -1,18 +1,8 @@
 """Push Label Studio JSON exports into Supabase (annotations table).
 
-Reads a JSON file exported from Label Studio (Format: JSON — common format).
-For each task with a submitted annotation, resolves the clip from ``data.video``
-(S3 or HTTPS URL), then inserts one row per task per annotator unless a row
-already exists for the same (clip_id, label_studio_task_id, annotator).
-
 Usage:
-    python scripts/push_annotations.py path/to/project-export.json
-    python scripts/push_annotations.py path/to/export.json --dry-run
-
-Environment (from .env):
-    SUPABASE_URL
-    SUPABASE_SERVICE_KEY
-    ANNOTATOR_NAME
+    python data_labeling/push_annotations.py path/to/project-export.json
+    python data_labeling/push_annotations.py path/to/export.json --dry-run
 """
 
 from __future__ import annotations
@@ -26,12 +16,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from dotenv import load_dotenv
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from src import db  # noqa: E402
-
-# clips/{source_id}/{source_id}_NNN.mp4 (path may be URL-encoded)
 _CLIP_KEY_RE = re.compile(
     r"clips/(?P<source_id>[^/]+)/(?P=source_id)_(?P<idx>\d+)\.mp4$",
     re.IGNORECASE,
@@ -43,7 +30,6 @@ def log(msg: str) -> None:
 
 
 def parse_clip_from_video_url(video: str) -> tuple[str, int] | None:
-    """Return (source_id, clip_index) from Label Studio ``data.video`` URL, or None."""
     if not video or not isinstance(video, str):
         return None
     video = unquote(video.strip())
@@ -68,7 +54,6 @@ def parse_clip_from_video_url(video: str) -> tuple[str, int] | None:
 
 
 def pick_latest_annotation(annotations: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the newest non-cancelled annotation dict, or None."""
     candidates: list[dict[str, Any]] = []
     for a in annotations:
         if not isinstance(a, dict):
@@ -82,19 +67,14 @@ def pick_latest_annotation(annotations: list[dict[str, Any]]) -> dict[str, Any] 
 
 
 def main() -> int:
+    from dotenv import load_dotenv
+    from src import db
+
     parser = argparse.ArgumentParser(
         description="Import Label Studio JSON export into Supabase annotations."
     )
-    parser.add_argument(
-        "export_json",
-        type=Path,
-        help="Path to Label Studio JSON export file",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Parse and resolve clips but do not write to Supabase",
-    )
+    parser.add_argument("export_json", type=Path, help="Path to Label Studio JSON export file")
+    parser.add_argument("--dry-run", action="store_true", help="Do not write to Supabase")
     args = parser.parse_args()
 
     load_dotenv()
@@ -109,14 +89,12 @@ def main() -> int:
         log("ERROR: ANNOTATOR_NAME is empty")
         return 1
 
-    path = args.export_json
-    if not path.is_file():
-        log(f"ERROR: not a file: {path}")
+    if not args.export_json.is_file():
+        log(f"ERROR: not a file: {args.export_json}")
         return 1
 
     try:
-        raw = path.read_text(encoding="utf-8")
-        tasks = json.loads(raw)
+        tasks = json.loads(args.export_json.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as e:
         log(f"ERROR: could not read JSON: {e}")
         return 1
@@ -224,7 +202,7 @@ def main() -> int:
             )
             inserted += 1
             log(f"  inserted task_id={tid} clip_id={clip_id} ({source_id}_{clip_index:03d})")
-        except Exception as e:  # noqa: BLE001 — surface PostgREST errors to user
+        except Exception as e:  # noqa: BLE001
             errors += 1
             log(f"  ERROR task {tid}: {e}")
 
@@ -248,3 +226,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
