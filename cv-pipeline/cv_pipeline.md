@@ -236,6 +236,20 @@ Best practices regardless of tool:
 **1c. Compute and save the homography.**
 `cv2.findHomography` with RANSAC is the standard approach. Save the matrix plus the source annotations so the calibration can be re-validated or re-fit later.
 
+Concrete tooling in this repo (from repo root, venv with `pip install -e '.[cv]'`):
+
+```bash
+# Optional: turn the Label Studio export into DB-friendly JSON blobs
+python data_labeling/court_keypoints.py path/to/court-keypoints-export.json --task 0
+
+# Fit homography → writes cv-pipeline/calibration/out/homography.npz and topdown.png
+# (positional input can be the raw Label Studio export *or* `court_keypoints.py` normalized JSON.)
+python cv-pipeline/calibration/court_homography.py path/to/court-keypoints-export.json
+
+# Interactive camera ↔ top-down; add --camera-overlay to save an overlay PNG (default path under calibration/out/)
+python cv-pipeline/calibration/court_homography_interactive.py path/to/court-keypoints-export.json --camera-overlay
+```
+
 **1d. Project detections to court space.**
 Given a bounding box, compute a foot point (midpoint of bottom edge is a reasonable default; using ankle keypoints from Phase 2 when confident is a stretch improvement). Apply the homography. Tag each projected position with which side of the net it's on. Filter detections whose court coordinates fall well outside the court — those are spectators or referees.
 

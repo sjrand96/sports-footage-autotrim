@@ -13,6 +13,7 @@
 | [weekly-updates/](weekly-updates/) | **Project scope, roadmap, milestones, evaluation** (e.g. [initial_proposal.md](weekly-updates/initial_proposal.md)) |
 | [data_labeling/prep_videos.py](data_labeling/prep_videos.py) | Download YouTube → 60 s / 30 fps clips → S3 + `source_videos` / `clips` |
 | [data_labeling/push_annotations.py](data_labeling/push_annotations.py) | Label Studio **JSON export** → `annotations` rows |
+| [data_labeling/court_keypoints.py](data_labeling/court_keypoints.py) | Court **KeyPointLabels** export → normalized JSON (`calibration_record_to_json`) |
 | [src/db.py](src/db.py) | Shared Supabase helpers for the scripts above |
 | [pyproject.toml](pyproject.toml) | Python deps for the pipeline (`pip install -e .`) |
 

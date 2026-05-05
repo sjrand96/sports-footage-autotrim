@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Side-by-side camera frame + ground-plane warp. Drag on the LEFT view to probe (Wx,Wy) and map to the warp.
+"""Interactive homography: camera + top-down warp. Optional --camera-overlay export.
 
-Uses the saved homography (--npz), or recomputes from a Label Studio export like court_homography.py.
+First positional arg accepts either a Label Studio JSON export **or** normalized payloads
+from ``python data_labeling/court_keypoints.py`` (same as ``court_homography.py``).
 
-Quit: ``q``. From repo root: ``.venv/bin/python cv-pipeline/calibration/court_homography_interactive.py``
+From repo root (with OpenCV GUI / display server):
 
-Requires OpenCV GUI (needs a display server). Uses ``opencv-python`` or ``opencv-python-headless``
-may lack HighGUI depending on platform; if ``imshow`` fails, install ``opencv-python`` instead.
+    .venv/bin/python cv-pipeline/calibration/court_homography_interactive.py path/to/export.json
+    .venv/bin/python cv-pipeline/calibration/court_homography_interactive.py path/to/export.json \\
+        --npz cv-pipeline/calibration/out/homography.npz
+    .venv/bin/python cv-pipeline/calibration/court_homography_interactive.py court_payloads.json --camera-overlay
+
+Quit: q or Esc.
 """
 
 from __future__ import annotations
@@ -17,30 +22,37 @@ import os
 import sys
 from pathlib import Path
 
-import numpy as np
-
 _CALIB_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import numpy as np
 
 try:
     import cv2
 except ImportError as e:  # pragma: no cover
-    raise SystemExit("OpenCV required: .venv/bin/pip install -e '.[cv]'") from e
+    raise SystemExit("OpenCV required: pip install -e '.[cv]'") from e
+
+from data_labeling.court_keypoints import load_calibration_records
 
 from court_homography import (
-    compute_homography,
+    _MARGIN_M,
+    _PIXELS_PER_METRE,
+    draw_camera_keypoint_overlay,
     draw_world_rect_overlay,
     expand_world_bounds_to_playing_court,
-    image_world_correspondences,
-    load_planar_world_points,
+    fit_homography_from_export_task,
+    load_calibration_image,
     warp_topdown,
     world_canvas_bounds,
 )
-from court_overlay import fetch_image_bgr, fetch_image_bgr_boto3, load_image_bgr
-from label_studio_keypoints import parse_keypoint_export_file
 
-_GEOMETRY_DEFAULT = _CALIB_DIR / "fivb_court_geometry.txt"
-_NPZ_DEFAULT = _CALIB_DIR / "court_homography.npz"
-_EXPORT_DEFAULT = _CALIB_DIR / "project-7-at-2026-05-05-19-45-119e8837.json"
+# Display (fixed — adjust in code if needed)
+_MAX_DISPLAY_HEIGHT = 900
+_GAP_PX = 12
+
+_DEFAULT_OVERLAY_PATH = _CALIB_DIR / "out" / "camera_overlay.png"
 
 
 def _uv_to_world_m(H_world_to_px: np.ndarray, u: float, v: float) -> tuple[float, float]:
@@ -75,84 +87,92 @@ def load_fit_from_npz(path: Path) -> tuple[np.ndarray, dict]:
     return H, meta
 
 
-def load_fit_from_export(args: argparse.Namespace) -> tuple[np.ndarray, tuple[float, float, float, float], float, dict]:
-    geo = Path(args.geometry)
-    world_pts = load_planar_world_points(geo)
-    records = parse_keypoint_export_file(Path(args.export_json))
-    rec = records[args.task]
-    img_xy, w_xy, labels = image_world_correspondences(rec, world_pts)
-    H, mask, hinfo = compute_homography(img_xy, w_xy)
-    if H is None:
-        raise RuntimeError("findHomography failed")
-    bounds = world_canvas_bounds(w_xy, mode=args.canvas, margin_m=args.margin_m)
-    ppm = args.ppm
-    meta_out = {"labels": labels, "inliers_info": hinfo, "canvas_mode": args.canvas}
-    return H.astype(np.float64), bounds, float(ppm), meta_out
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Click/drag on camera frame → see mapped point on warp")
-    parser.add_argument("--npz", type=Path, default=None, help="Saved court_homography.npz (skipped if absent)")
-    parser.add_argument("--export-json", type=Path, default=_EXPORT_DEFAULT)
-    parser.add_argument("--geometry", type=Path, default=_GEOMETRY_DEFAULT)
-    parser.add_argument("--image", type=Path, default=None)
-    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
-    parser.add_argument("--task", type=int, default=0)
-    parser.add_argument("--canvas", choices=("from-labels", "full-regulation"), default="from-labels")
-    parser.add_argument("--margin-m", type=float, default=1.0)
-    parser.add_argument("--ppm", type=float, default=45.0)
-    parser.add_argument(
-        "--max-height",
-        type=int,
-        default=900,
-        help="scaled display height before stitching (preserve aspect ratios)",
+    p = argparse.ArgumentParser(description="Explore homography: click/drag on camera (left) → see world map (right).")
+    p.add_argument(
+        "calibration_json",
+        type=Path,
+        help="Label Studio export **or** normalized payloads (court_keypoints.py output); selects frame/keypoints",
     )
-    parser.add_argument(
-        "--gap",
-        type=int,
-        default=12,
-        help="divider strip width between panels (neutral gray)",
+    p.add_argument(
+        "--npz",
+        type=Path,
+        default=None,
+        help="Use saved homography.npz instead of refitting from export",
     )
-    args = parser.parse_args()
+    p.add_argument("--geometry", type=Path, default=_CALIB_DIR / "fivb_court_geometry.txt")
+    p.add_argument("--task", type=int, default=0)
+    p.add_argument("--image", type=Path, default=None, help="Local frame path (overrides S3 in export)")
+    p.add_argument(
+        "--region",
+        default=os.environ.get("AWS_REGION", "us-west-2"),
+        help="S3 region for image fetch",
+    )
+    p.add_argument(
+        "--camera-overlay",
+        type=Path,
+        nargs="?",
+        const=_DEFAULT_OVERLAY_PATH,
+        default=None,
+        help="Save keypoint/line overlay on camera frame; default path if flag given with no path: %(const)s",
+    )
+    args = p.parse_args()
+    region = os.environ.get("AWS_REGION", args.region)
 
-    H: np.ndarray
-    wx_min: float
-    wx_max: float
-    wy_min: float
-    wy_max: float
-    ppm: float
+    if not args.calibration_json.is_file():
+        print(f"not found: {args.calibration_json}", file=sys.stderr)
+        return 1
 
-    npz_path = args.npz or _NPZ_DEFAULT
-    if npz_path.is_file():
-        H, meta = load_fit_from_npz(npz_path)
+    records = load_calibration_records(args.calibration_json)
+    if not records or args.task < 0 or args.task >= len(records):
+        print("no records or bad --task", file=sys.stderr)
+        return 1
+    rec = records[args.task]
+
+    if args.npz is not None:
+        if not args.npz.is_file():
+            print(f"not found: {args.npz}", file=sys.stderr)
+            return 1
+        H, meta = load_fit_from_npz(args.npz)
         wx_min, wx_max, wy_min, wy_max = meta["world_bounds_xy"]
-        # Older .npz saved a label-only slab; always include full playing court for overlays.
         wx_min, wx_max, wy_min, wy_max = expand_world_bounds_to_playing_court(
-            wx_min, wx_max, wy_min, wy_max, margin_m=args.margin_m
+            wx_min, wx_max, wy_min, wy_max, margin_m=_MARGIN_M
         )
-        ppm = float(meta.get("pixels_per_metre_requested", args.ppm))
+        ppm = float(meta.get("pixels_per_metre_requested", _PIXELS_PER_METRE))
     else:
-        H, bounds, ppm, meta = load_fit_from_export(args)
-        wx_min, wx_max, wy_min, wy_max = bounds
+        if not args.geometry.is_file():
+            print(f"not found: {args.geometry}", file=sys.stderr)
+            return 1
+        try:
+            H, _mask, _info, img_xy, w_xy, _labels, _ = fit_homography_from_export_task(
+                args.calibration_json,
+                geometry=args.geometry,
+                task_index=args.task,
+            )
+        except (ValueError, RuntimeError) as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        _ = img_xy
+        wx_min, wx_max, wy_min, wy_max = world_canvas_bounds(w_xy, margin_m=_MARGIN_M)
+        ppm = _PIXELS_PER_METRE
+
+    try:
+        img = load_calibration_image(rec, region=region, local_path=args.image)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    if args.camera_overlay is not None:
+        out_path = args.camera_overlay
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        layered = draw_camera_keypoint_overlay(img, rec)
+        if not cv2.imwrite(str(out_path), layered):
+            print(f"failed to write {out_path}", file=sys.stderr)
+            return 1
+        print(f"wrote {out_path.resolve()}", flush=True)
 
     out_w = max(2, int(round((wx_max - wx_min) * ppm)))
     out_h = max(2, int(round((wy_max - wy_min) * ppm)))
-
-    img: np.ndarray
-    if args.image:
-        img = load_image_bgr(Path(args.image))
-    else:
-        records = parse_keypoint_export_file(Path(args.export_json))
-        if not records:
-            sys.exit("no tasks in export; pass --image or --export-json")
-        rec = records[args.task]
-        if not rec.image_s3_bucket or not rec.image_s3_key:
-            sys.exit("export missing S3 ref; pass --image")
-        img = fetch_image_bgr(rec.image_s3_bucket, rec.image_s3_key, region=args.region)
-        if img is None:
-            img = fetch_image_bgr_boto3(rec.image_s3_bucket, rec.image_s3_key)
-        if img is None:
-            sys.exit("could not download frame from S3; pass local --image")
 
     warp_canvas = warp_topdown(
         img,
@@ -167,11 +187,8 @@ def main() -> int:
     draw_world_rect_overlay(warp_canvas, wx_min=wx_min, wx_max=wx_max, wy_min=wy_min, wy_max=wy_max)
 
     src_h, src_w = img.shape[:2]
-    mh = args.max_height
-    if src_h > mh:
-        scale_cam = mh / src_h
-    else:
-        scale_cam = 1.0
+    mh = _MAX_DISPLAY_HEIGHT
+    scale_cam = mh / src_h if src_h > mh else 1.0
     cam_vis_w = max(2, int(round(src_w * scale_cam)))
     cam_vis_h = max(2, int(round(src_h * scale_cam)))
 
@@ -180,12 +197,11 @@ def main() -> int:
 
     cam_scale_x = cam_vis_w / float(src_w)
     cam_scale_y = cam_vis_h / float(src_h)
-
     warp_scale_x = warp_vis_w / float(out_w)
     warp_scale_y = warp_vis_h / float(out_h)
 
     divider = cam_vis_w
-    gap_w = args.gap
+    gap_w = _GAP_PX
     win_w = cam_vis_w + gap_w + warp_vis_w
     hud_h = 36
 
@@ -221,9 +237,7 @@ def main() -> int:
                 cv2.drawMarker(right, (xd, yd), color=(60, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=22, thickness=2)
                 cv2.circle(right, (xd, yd), 7, color=(40, 200, 255), thickness=2, lineType=cv2.LINE_AA)
 
-            hud = (
-                f"u,v={float(ux):.1f},{float(uy):.1f}px  Wx,Wy={wx:.2f},{wy:.2f}m  topdown=({ox_f:.1f},{oy_f:.1f})"
-            )
+            hud = f"u,v={float(ux):.1f},{float(uy):.1f}px  Wx,Wy={wx:.2f},{wy:.2f}m  topdown=({ox_f:.1f},{oy_f:.1f})"
         else:
             hud = "Left: camera — click / drag. Right: ground plane (metres).  q quit"
 
@@ -235,9 +249,7 @@ def main() -> int:
         cv2.imshow("homography explorer", canvas)
 
     def on_mouse(event: int, x: int, y: int, flags: int, _p: object) -> None:
-        if y < 0 or y >= cam_vis_h:
-            return
-        if x < 0 or x >= divider:
+        if y < 0 or y >= cam_vis_h or x < 0 or x >= divider:
             return
 
         if event == cv2.EVENT_LBUTTONUP:
@@ -266,7 +278,7 @@ def main() -> int:
     cv2.setMouseCallback("homography explorer", on_mouse)
 
     redraw()
-    print("Window open: drag with left mouse on CAMERA (left) panel; q closes.", flush=True)
+    print("Window open: drag on CAMERA (left); q closes.", flush=True)
 
     while True:
         k = cv2.waitKey(30) & 0xFF

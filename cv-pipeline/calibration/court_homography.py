@@ -1,11 +1,4 @@
-"""Fit ground-plane homography from Label Studio keypoints + FIVB world points; inverse-warp to a top-down image.
-
-Each output pixel is one (Wx, Wy) on the floor in metres; the homography decides which camera pixel
-samples that turf. Regions of the rectangle that the camera never sees fall outside the frame and
-warp to gray—especially if you use ``--canvas full-regulation`` without covering the whole court.
-``--canvas from-labels`` starts from your labelled hull plus margin, then expands to include the full
-18×9 m playing rectangle so drawn baselines are not clipped when you skipped near-baseline labels.
-"""
+"""Fit ground-plane homography from Label Studio keypoints + FIVB world points; warp to top-down."""
 
 from __future__ import annotations
 
@@ -18,39 +11,133 @@ from pathlib import Path
 from typing import Any
 
 _CALIB_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import numpy as np
 
-from label_studio_keypoints import CalibrationRecord, parse_keypoint_export_file
+from data_labeling.court_keypoints import CalibrationRecord, load_calibration_records
 
 try:
     import cv2
 except ImportError as e:  # pragma: no cover
-    raise SystemExit(
-        "OpenCV required. From repo root: .venv/bin/pip install -e '.[cv]'"
-    ) from e
+    raise SystemExit("OpenCV required: pip install -e '.[cv]'") from e
 
-# Imported after fetch helpers
-from court_overlay import (
-    fetch_image_bgr,
-    fetch_image_bgr_boto3,
-    load_image_bgr,
-)
+from image_io import fetch_image_bgr, fetch_image_bgr_boto3, load_image_bgr
+
+
+# Opinionated defaults (no CLI flags — change here if needed)
+_MARGIN_M = 1.0
+_PIXELS_PER_METRE = 45.0
+_CANVAS_MODE = "from-labels"  # label hull padded, expanded to full 18×9 m playing rectangle
+AWS_REGION_FALLBACK = os.environ.get("AWS_REGION", "us-west-2")
 
 
 _GEOMETRY_FILE = _CALIB_DIR / "fivb_court_geometry.txt"
-
-# Non-coplanar with floor — including them poisons a ground-plane solve.
 _SKIP_LABELS_FOR_H = frozenset({"net_post_top_left", "net_post_top_right"})
+
+
+# ----- Optional: keypoint overlay on camera frame (replaces standalone court_overlay.py) -----
+
+_COLOR_BASELINE = (40, 40, 230)
+_COLOR_ATTACK = (60, 200, 80)
+_COLOR_CENTER = (230, 160, 60)
+_COLOR_NET = (0, 220, 255)
+_COLOR_NET_TOP = (80, 140, 255)
+_COLOR_SIDE = (200, 200, 200)
+
+_LINE_PAIRS: list[tuple[str, str, tuple[int, int, int]]] = [
+    ("far_baseline_left", "far_baseline_right", _COLOR_BASELINE),
+    ("near_baseline_left", "near_baseline_right", _COLOR_BASELINE),
+    ("far_attack_left", "far_attack_right", _COLOR_ATTACK),
+    ("near_attack_left", "near_attack_right", _COLOR_ATTACK),
+    ("centerline_left", "centerline_right", _COLOR_CENTER),
+    ("net_post_base_left", "net_post_base_right", _COLOR_NET),
+    ("net_post_top_left", "net_post_top_right", _COLOR_NET_TOP),
+]
+
+_POST_PAIRS: list[tuple[str, str, tuple[int, int, int]]] = [
+    ("net_post_base_left", "net_post_top_left", _COLOR_NET_TOP),
+    ("net_post_base_right", "net_post_top_right", _COLOR_NET_TOP),
+]
+
+_SIDELINE_ORDER_LEFT = [
+    "far_baseline_left",
+    "far_attack_left",
+    "centerline_left",
+    "near_attack_left",
+    "near_baseline_left",
+]
+_SIDELINE_ORDER_RIGHT = [
+    "far_baseline_right",
+    "far_attack_right",
+    "centerline_right",
+    "near_attack_right",
+    "near_baseline_right",
+]
+
+
+def _pixel_map(rec: CalibrationRecord) -> dict[str, tuple[int, int]]:
+    return {kp.label: (int(round(kp.x_px)), int(round(kp.y_px))) for kp in rec.keypoints}
+
+
+def draw_camera_keypoint_overlay(img_bgr: np.ndarray, rec: CalibrationRecord) -> np.ndarray:
+    """Return a copy with court lines over keypoints; skips edges when a label is missing."""
+    out = img_bgr.copy()
+    h, w = out.shape[:2]
+    pts = _pixel_map(rec)
+
+    def line(a: str, b: str, color: tuple[int, int, int], thickness: int) -> None:
+        pa, pb = pts.get(a), pts.get(b)
+        if pa is None or pb is None:
+            return
+        cv2.line(out, pa, pb, color, thickness, lineType=cv2.LINE_AA)
+
+    for chain, color in ((_SIDELINE_ORDER_LEFT, _COLOR_SIDE), (_SIDELINE_ORDER_RIGHT, _COLOR_SIDE)):
+        ring = [pts[l] for l in chain if l in pts]
+        if len(ring) >= 2:
+            arr = np.array([ring], dtype=np.int32)
+            cv2.polylines(out, arr, isClosed=False, color=color, thickness=2, lineType=cv2.LINE_AA)
+
+    for a, b, c in _LINE_PAIRS:
+        line(a, b, c, 3)
+
+    for a, b, c in _POST_PAIRS:
+        line(a, b, c, 3)
+
+    for lbl, (px, py) in pts.items():
+        cv2.circle(out, (px, py), 6, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+        cv2.circle(out, (px, py), 5, (40, 220, 255), -1, lineType=cv2.LINE_AA)
+        tx = min(w - 160, px + 8)
+        ty = max(16, py - 6)
+        cv2.putText(out, lbl, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (20, 20, 20), 2, cv2.LINE_AA)
+        cv2.putText(out, lbl, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (245, 245, 245), 1, cv2.LINE_AA)
+
+    return out
+
+
+def load_calibration_image(
+    rec: CalibrationRecord,
+    *,
+    region: str,
+    local_path: Path | None,
+) -> np.ndarray:
+    if local_path is not None:
+        return load_image_bgr(local_path)
+    if not rec.image_s3_bucket or not rec.image_s3_key:
+        raise ValueError("missing S3 ref in export — pass --image with a local frame")
+    img = fetch_image_bgr(rec.image_s3_bucket, rec.image_s3_key, region=region)
+    if img is None:
+        img = fetch_image_bgr_boto3(rec.image_s3_bucket, rec.image_s3_key)
+    if img is None:
+        raise RuntimeError("could not load image from S3; use --image with a local path")
+    return img
 
 
 def load_planar_world_points(geometry_txt: Path) -> dict[str, tuple[float, float]]:
     text = geometry_txt.read_text(encoding="utf-8")
-    m = re.search(
-        r"#BEGIN_POINT_TABLE\n(.*?)#END_POINT_TABLE",
-        text,
-        flags=re.DOTALL,
-    )
+    m = re.search(r"#BEGIN_POINT_TABLE\n(.*?)#END_POINT_TABLE", text, flags=re.DOTALL)
     if not m:
         raise ValueError(f"no #BEGIN_POINT_TABLE block in {geometry_txt}")
     world: dict[str, tuple[float, float]] = {}
@@ -76,10 +163,8 @@ def image_world_correspondences(
     pairs_i: list[tuple[float, float]] = []
     pairs_w: list[tuple[float, float]] = []
     used_labels: list[str] = []
-
     kp_map = {k.label: k for k in rec.keypoints}
 
-    # Stable order helps debugging reproducibility
     for label in sorted(kp_map):
         if label in skip_labels:
             continue
@@ -97,9 +182,7 @@ def image_world_correspondences(
             f"Labels used: {used_labels}; skipped (non-planar): {sorted(skip_labels & set(kp_map))}"
         )
 
-    src = np.array(pairs_i, dtype=np.float32)
-    dst = np.array(pairs_w, dtype=np.float32)
-    return src, dst, used_labels
+    return np.array(pairs_i, dtype=np.float32), np.array(pairs_w, dtype=np.float32), used_labels
 
 
 def compute_homography(
@@ -115,10 +198,9 @@ def compute_homography(
         return None, mask, info
 
     n = len(image_xy)
-    wh = np.c_[world_xy, np.ones(n, dtype=np.float32)].T  # 3 x N
+    wh = np.c_[world_xy, np.ones(n, dtype=np.float32)].T
     pred = H @ wh
     pred = pred[:2] / pred[2]
-
     errors = np.linalg.norm(pred.T - image_xy, axis=1)
     info["rmse_all_px"] = float(np.sqrt(np.mean(errors**2)))
 
@@ -138,11 +220,6 @@ def expand_world_bounds_to_playing_court(
     *,
     margin_m: float,
 ) -> tuple[float, float, float, float]:
-    """Grow a world Axis-Aligned Bounding Box so the 18×9 m playing outline fits (sidelines ±4.5 m, baselines ±9 m).
-
-    Use when labels omit the near baseline but you still want regulation lines fully visible in the warp.
-    ``margin_m`` is applied the same way as in :func:`world_canvas_bounds` (pad outside that outline).
-    """
     return (
         min(wx_min, -4.5 - margin_m),
         max(wx_max, 4.5 + margin_m),
@@ -154,27 +231,16 @@ def expand_world_bounds_to_playing_court(
 def world_canvas_bounds(
     world_xy_used: np.ndarray,
     *,
-    mode: str,
     margin_m: float,
 ) -> tuple[float, float, float, float]:
-    """Return (wx_min, wx_max, wy_min, wy_max) in metres for the top-down raster."""
-    if mode == "from-labels":
-        tight = (
-            float(np.min(world_xy_used[:, 0]) - margin_m),
-            float(np.max(world_xy_used[:, 0]) + margin_m),
-            float(np.min(world_xy_used[:, 1]) - margin_m),
-            float(np.max(world_xy_used[:, 1]) + margin_m),
-        )
-        return expand_world_bounds_to_playing_court(*tight, margin_m=margin_m)
-    if mode == "full-regulation":
-        # Sidelines ±4.5 m; posts for FIVB World/Official at ±5.5 m — include posts in canvas width.
-        return (
-            -5.5 - margin_m,
-            5.5 + margin_m,
-            -9.0 - margin_m,
-            9.0 + margin_m,
-        )
-    raise ValueError(f"unknown canvas mode {mode!r}")
+    """Label hull padded, then expanded so full regulation playing rectangle fits."""
+    tight = (
+        float(np.min(world_xy_used[:, 0]) - margin_m),
+        float(np.max(world_xy_used[:, 0]) + margin_m),
+        float(np.min(world_xy_used[:, 1]) - margin_m),
+        float(np.max(world_xy_used[:, 1]) + margin_m),
+    )
+    return expand_world_bounds_to_playing_court(*tight, margin_m=margin_m)
 
 
 def warp_topdown(
@@ -188,21 +254,9 @@ def warp_topdown(
     out_w: int,
     out_h: int,
 ) -> np.ndarray:
-    """Inverse-warp so each output pixel samples the camera image at the corresponding world ground point."""
     sx = (wx_max - wx_min) / max(out_w - 1, 1)
     sy = (wy_max - wy_min) / max(out_h - 1, 1)
-
-    A = np.array(
-        [
-            [sx, 0.0, wx_min],
-            [0.0, -sy, wy_max],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=np.float64,
-    )
-
-    # Composition: homogeneous image_xy ∝ H @ (A @ homogeneous canvas_xy).
-    # warpPerspective(backward remap) interprets its matrix as inverse of dst→src; use inv().
+    A = np.array([[sx, 0.0, wx_min], [0.0, -sy, wy_max], [0.0, 0.0, 1.0]], dtype=np.float64)
     canvas_to_image = H_world_to_image @ A
     warp_m = np.linalg.inv(canvas_to_image)
     return cv2.warpPerspective(
@@ -223,7 +277,6 @@ def draw_world_rect_overlay(
     wy_min: float,
     wy_max: float,
 ) -> None:
-    """Draw playing-court rectangle (sidelines × baselines) in canvas pixel space — in-place."""
     h, w = canvas_bgr.shape[:2]
 
     def wc(wx: float, wy: float) -> tuple[int, int]:
@@ -232,12 +285,7 @@ def draw_world_rect_overlay(
         return int(round(ox)), int(round(oy))
 
     outer = np.array(
-        [
-            wc(-4.5, 9.0),
-            wc(4.5, 9.0),
-            wc(4.5, -9.0),
-            wc(-4.5, -9.0),
-        ],
+        [wc(-4.5, 9.0), wc(4.5, 9.0), wc(4.5, -9.0), wc(-4.5, -9.0)],
         dtype=np.int32,
     )
     cv2.polylines(canvas_bgr, [outer], isClosed=True, color=(0, 255, 80), thickness=2, lineType=cv2.LINE_AA)
@@ -246,9 +294,7 @@ def draw_world_rect_overlay(
         pa, pb = wc(*a), wc(*b)
         cv2.line(canvas_bgr, pa, pb, col, 2, cv2.LINE_AA)
 
-    # Centre line across width
     line_w((-4.5, 0.0), (4.5, 0.0), (180, 120, 255))
-    # Attack lines / baselines helpers
     line_w((-4.5, 3.0), (4.5, 3.0), (80, 200, 220))
     line_w((-4.5, -3.0), (4.5, -3.0), (80, 200, 220))
 
@@ -276,74 +322,82 @@ def save_calibration_npz(
     np.savez_compressed(path, **payload)
 
 
+def fit_homography_from_export_task(
+    calibration_json: Path,
+    *,
+    geometry: Path,
+    task_index: int,
+) -> tuple[np.ndarray, np.ndarray | None, dict[str, Any], np.ndarray, np.ndarray, list[str], CalibrationRecord]:
+    """Load task, correspondences, RANSAC mask/hinfo, and H."""
+    world_pts = load_planar_world_points(geometry)
+    records = load_calibration_records(calibration_json)
+    if not records or task_index < 0 or task_index >= len(records):
+        raise ValueError(
+            "No calibration records, or bad --task index. "
+            "Use a Label Studio JSON export, or normalized payloads "
+            "(e.g. output of `python data_labeling/court_keypoints.py export.json`)."
+        )
+    rec = records[task_index]
+    img_xy, w_xy, labels = image_world_correspondences(rec, world_pts)
+    H, mask, hinfo = compute_homography(img_xy, w_xy)
+    if H is None:
+        raise RuntimeError("findHomography failed")
+    return H, mask, hinfo, img_xy, w_xy, labels, rec
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="FIVB homography + top-down warp from LS keypoint export")
+    parser = argparse.ArgumentParser(
+        description="Fit court homography + write top-down preview (defaults: from-label canvas, 45 px/m, 1 m margin)."
+    )
     parser.add_argument(
-        "export_json",
-        nargs="?",
+        "calibration_json",
         type=Path,
-        default=_CALIB_DIR / "project-7-at-2026-05-05-19-45-119e8837.json",
+        help="Label Studio export **or** normalized court_keypoints payloads (court_keypoints.py output)",
     )
-    parser.add_argument("--geometry", type=Path, default=_GEOMETRY_FILE)
-    parser.add_argument("--image", type=Path, help="Local frame instead of downloading from export S3 ref")
-    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
+    parser.add_argument("--geometry", type=Path, default=_GEOMETRY_FILE, help=f"default: {_GEOMETRY_FILE}")
     parser.add_argument("--task", type=int, default=0)
-    parser.add_argument("--ppm", type=float, default=45.0, help="pixels per metre for top-down canvas")
+    parser.add_argument("--image", type=Path, default=None, help="Local calibration frame (overrides S3 in export)")
     parser.add_argument(
-        "--canvas",
-        choices=("from-labels", "full-regulation"),
-        default="from-labels",
-        help="from-labels: label hull + margin, expanded to include full 18×9 m playing rectangle (so baselines draw in-frame). "
-        "full-regulation: widen to ±5.5 m for posts plus margin — more grey outside FOV.",
+        "--out-dir",
+        type=Path,
+        default=_CALIB_DIR / "out",
+        help=f"Writes homography.npz + topdown.png (default: {_CALIB_DIR / 'out'})",
     )
     parser.add_argument(
-        "--margin-m",
-        type=float,
-        default=1.0,
-        help="extra metres padded around the chosen canvas bounds",
+        "--region",
+        default=AWS_REGION_FALLBACK,
+        help="S3 region for HTTPS fallback (also respects AWS_REGION)",
     )
-    parser.add_argument("-o", "--output-npz", type=Path, default=_CALIB_DIR / "court_homography.npz")
-    parser.add_argument("--topdown", type=Path, default=_CALIB_DIR / "court_topdown_preview.png")
     args = parser.parse_args()
 
-    if not args.export_json.is_file():
-        print(f"not found: {args.export_json}", file=sys.stderr)
+    region = os.environ.get("AWS_REGION", args.region)
+
+    if not args.calibration_json.is_file():
+        print(f"not found: {args.calibration_json}", file=sys.stderr)
         return 1
     if not args.geometry.is_file():
         print(f"not found: {args.geometry}", file=sys.stderr)
         return 1
 
-    world_pts = load_planar_world_points(args.geometry)
-    records = parse_keypoint_export_file(args.export_json)
-    if not records or args.task < 0 or args.task >= len(records):
-        print("missing task or bad --task index", file=sys.stderr)
-        return 1
-    rec = records[args.task]
-
-    img_xy, w_xy, labels = image_world_correspondences(rec, world_pts)
-    H, mask, hinfo = compute_homography(img_xy, w_xy)
-    if H is None:
-        print("findHomography failed", file=sys.stderr)
+    try:
+        H, mask, hinfo, img_xy, w_xy, labels, rec = fit_homography_from_export_task(
+            args.calibration_json,
+            geometry=args.geometry,
+            task_index=args.task,
+        )
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
         return 1
 
-    if args.image:
-        img = load_image_bgr(args.image)
-    else:
-        if not rec.image_s3_bucket or not rec.image_s3_key:
-            print("missing S3 ref in export — use --image", file=sys.stderr)
-            return 1
-        img = fetch_image_bgr(rec.image_s3_bucket, rec.image_s3_key, region=args.region)
-        if img is None:
-            img = fetch_image_bgr_boto3(rec.image_s3_bucket, rec.image_s3_key)
-        if img is None:
-            print("could not load image", file=sys.stderr)
-            return 1
+    try:
+        img = load_calibration_image(rec, region=region, local_path=args.image)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
 
-    wx_min, wx_max, wy_min, wy_max = world_canvas_bounds(
-        w_xy, mode=args.canvas, margin_m=args.margin_m
-    )
-    out_w = max(2, int(round((wx_max - wx_min) * args.ppm)))
-    out_h = max(2, int(round((wy_max - wy_min) * args.ppm)))
+    wx_min, wx_max, wy_min, wy_max = world_canvas_bounds(w_xy, margin_m=_MARGIN_M)
+    out_w = max(2, int(round((wx_max - wx_min) * _PIXELS_PER_METRE)))
+    out_h = max(2, int(round((wy_max - wy_min) * _PIXELS_PER_METRE)))
 
     topdown = warp_topdown(
         img,
@@ -354,23 +408,26 @@ def main() -> int:
         wy_max=wy_max,
         out_w=out_w,
         out_h=out_h,
-    )
-
-    td_u8 = topdown.astype(np.uint8)
+    ).astype(np.uint8)
 
     meta = {
         **hinfo,
         "labels_used_planar_H": labels,
         "skipped_non_planar": sorted(_SKIP_LABELS_FOR_H & {k.label for k in rec.keypoints}),
         "world_bounds_xy": (wx_min, wx_max, wy_min, wy_max),
-        "pixels_per_metre_requested": args.ppm,
+        "pixels_per_metre_requested": _PIXELS_PER_METRE,
         "geometry_file": str(args.geometry.resolve()),
         "ransac_threshold_px_default": 4.0,
-        "canvas_mode": args.canvas,
+        "canvas_mode": _CANVAS_MODE,
+        "margin_m": _MARGIN_M,
     }
-    args.output_npz.parent.mkdir(parents=True, exist_ok=True)
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    npz_path = (args.out_dir / "homography.npz").resolve()
+    top_path = (args.out_dir / "topdown.png").resolve()
+
     save_calibration_npz(
-        args.output_npz.expanduser().resolve(),
+        npz_path,
         H=H,
         used_labels=labels,
         image_xy=img_xy,
@@ -380,29 +437,23 @@ def main() -> int:
     )
 
     draw_world_rect_overlay(
-        td_u8,
+        topdown,
         wx_min=wx_min,
         wx_max=wx_max,
         wy_min=wy_min,
         wy_max=wy_max,
     )
-    td_path = args.topdown.expanduser().resolve()
-    td_path.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(str(td_path), td_u8):
-        print(f"could not save {td_path}", file=sys.stderr)
+
+    if not cv2.imwrite(str(top_path), topdown):
+        print(f"could not save {top_path}", file=sys.stderr)
         return 1
 
-    nz = args.output_npz.expanduser().resolve()
-    print(f"homography_saved {nz}")
-    print(f"topdown_preview {td_path.resolve()}")
-    print(
-        f"world_canvas_m Wx[{wx_min:.2f},{wx_max:.2f}] Wy[{wy_min:.2f},{wy_max:.2f}] mode={args.canvas}",
-        file=sys.stderr,
-    )
+    print(f"homography_saved {npz_path}")
+    print(f"topdown_preview {top_path}")
     rs = meta.get("rmse_all_px")
-    rs_s = f"{rs:.4f}" if rs is not None else "n/a"
     print(
-        f"rmse_px={rs_s} inliers={meta.get('inliers')}/{len(labels)}",
+        f"world_canvas_m Wx[{wx_min:.2f},{wx_max:.2f}] Wy[{wy_min:.2f},{wy_max:.2f}] "
+        f"rmse_px={rs:.4f} inliers={meta.get('inliers')}/{len(labels)}",
         file=sys.stderr,
     )
     return 0
