@@ -1,5 +1,6 @@
 data/*.mp4
-
+video-editor/node_modules/
+video-editor/.vite/deps/
 # Ignore PyTorch model files for version control
 notebooks/*.pt
 
