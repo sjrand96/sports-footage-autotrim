@@ -1,4 +1,4 @@
-"""Supabase client wrapper used by prep_videos.py and push_annotations.py."""
+"""Supabase helpers used by `data_labeling/prep_videos.py` and `data_labeling/push_annotations.py`."""
 
 from __future__ import annotations
 

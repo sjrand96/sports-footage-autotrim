@@ -223,7 +223,7 @@ Net post tops add Z = 2.43m if you decide to extend to 3D later. Pin down whethe
 **1b. Annotate court keypoints on a reference frame.**
 Pick one clean frame per recording session. The minimum is 4 visible non-collinear points; 8+ is recommended for a robust least-squares fit. Skip points that are out of frame.
 
-Label Studio is one option for this — keypoint labels with a zoom-enabled image view work well. Other options: a quick matplotlib clicker, CVAT, or whatever annotation tool the team is comfortable with. The output just needs to be (label, x_pixel, y_pixel) pairs.
+Label Studio is one option for this: use a **separate** image project with `KeyPointLabels` (not the timeline project used for Playing/Downtime). The repo documents a ready-made template — label names, colors, import steps, and court semantics — in [docs/annotation_process/label-studio-setup.md](../docs/annotation_process/label-studio-setup.md#2b-optional-court-keypoints-project-homography). Other options: a quick matplotlib clicker, CVAT, or whatever annotation tool the team is comfortable with. The output just needs to be (label, x_pixel, y_pixel) pairs.
 
 Best practices regardless of tool:
 - Annotate at full video resolution

@@ -19,6 +19,10 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+cv = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
