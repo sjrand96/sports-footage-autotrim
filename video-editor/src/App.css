@@ -60,6 +60,21 @@
   filter: brightness(1.05);
 }
 
+.file-button--secondary {
+  color: #e8eaed;
+  background: #5f6368;
+}
+
+.file-button--secondary:hover {
+  filter: brightness(1.12);
+}
+
+.file-button.file-button--disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 0.48;
+}
+
 .file-button.large {
   padding: 0.65rem 1.25rem;
   font-size: 1rem;
@@ -104,7 +119,14 @@
 .file-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   min-width: 0;
+}
+
+.file-row .file-name {
+  flex: 1;
+  min-width: 6rem;
 }
 
 .file-name {
@@ -113,6 +135,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.labels-import-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #9aa0a6;
 }
 
 .hint {

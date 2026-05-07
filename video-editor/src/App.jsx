@@ -5,6 +5,10 @@ import {
   snapTimeForSelectedPlayStart,
   sortIntervals,
 } from './selectedIntervalPlayback.js'
+import {
+  parseLabelStudioTasksJson,
+  playingIntervalsSecondsForExport,
+} from './labelStudioImport.js'
 import './App.css'
 
 const MIN_INTERVAL_SEC = 0.05
@@ -19,6 +23,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [intervals, setIntervals] = useState([])
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
+  const [labelsHint, setLabelsHint] = useState('')
 
   // clean up the old URL when the source URL changes
   const revokeUrl = useCallback((url) => {
@@ -48,7 +53,49 @@ export default function App() {
     setDuration(0)
     setIsPlaying(false)
     setIntervals([])
+    setLabelsHint('')
   }
+
+  const onPickGroundTruthLabels = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file) return
+      if (!Number.isFinite(duration) || duration <= 0) {
+        setLabelsHint('Wait until the clip has loaded, then try again.')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const tasks = parseLabelStudioTasksJson(reader.result)
+          const { intervals: imported, error } = playingIntervalsSecondsForExport(
+            tasks,
+            fileLabel,
+            duration,
+          )
+          if (error) {
+            setLabelsHint(error)
+            return
+          }
+          const withIds = imported.map((iv) => ({
+            id: nextIntervalId(),
+            start: iv.start,
+            end: iv.end,
+          }))
+          setIntervals(withIds)
+          setLabelsHint(
+            `Imported ${withIds.length} Playing segment${withIds.length !== 1 ? 's' : ''} from the JSON.`,
+          )
+        } catch (err) {
+          setLabelsHint(err?.message || 'Could not read that JSON export.')
+        }
+      }
+      reader.onerror = () => setLabelsHint('Failed to read file.')
+      reader.readAsText(file)
+    },
+    [duration, fileLabel, nextIntervalId],
+  )
 
   const onTimeUpdate = () => {
     const v = videoRef.current
@@ -195,7 +242,28 @@ export default function App() {
                 <span className="file-name" title={fileLabel}>
                   {fileLabel}
                 </span>
+                <label
+                  className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                >
+                  Import ground-truth labels
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={onPickGroundTruthLabels}
+                    disabled={!duration}
+                    hidden
+                  />
+                </label>
               </div>
+              {labelsHint ? (
+                <p
+                  className="labels-import-hint"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {labelsHint}
+                </p>
+              ) : null}
 
               <div className="playback-block">
                 <PlaybackTimeline
