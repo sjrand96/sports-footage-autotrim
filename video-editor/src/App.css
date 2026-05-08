@@ -346,6 +346,18 @@
   gap: 0.45rem;
 }
 
+/* Shared fixed-width slots so timelines align across rows. */
+.playback-left-slot {
+  width: 6.5rem;
+  box-sizing: border-box;
+}
+
+.playback-right-slot {
+  width: 4.5rem;
+  box-sizing: border-box;
+  text-align: right;
+}
+
 .playback-selected-toggle {
   display: flex;
   align-items: center;
@@ -376,10 +388,13 @@
   margin-top: calc(0.25rem + 5px);
 }
 
+.playback-row--secondary {
+  margin-top: 0.35rem;
+}
+
 .playback-play {
   flex-shrink: 0;
   align-self: center;
-  min-width: 4.5rem;
   padding: 0.45rem 0.65rem;
   font-size: 0.85rem;
   font-weight: 600;
@@ -397,6 +412,22 @@
 .playback-play:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.playback-row-label {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(109, 220, 150, 0.92);
+  background: rgba(53, 196, 90, 0.08);
+  border: 1px solid rgba(70, 220, 120, 0.18);
+  border-radius: 6px;
+  user-select: none;
+  text-align: center;
 }
 
 .playback-body {
@@ -543,4 +574,13 @@
 
 .playback-time-sep {
   opacity: 0.55;
+}
+
+.playback-coverage {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(109, 220, 150, 0.92);
+  white-space: nowrap;
 }
