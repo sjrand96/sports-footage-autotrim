@@ -320,25 +320,7 @@ export default function App() {
                   onSeek={seek}
                   onIntervalBoundaryChange={onIntervalBoundaryChange}
                 />
-                <label className="playback-selected-toggle">
-                  <input
-                    type="checkbox"
-                    checked={playSelectedOnly}
-                    onChange={(e) => setPlaySelectedOnly(e.target.checked)}
-                    disabled={!duration || sortIntervals(intervals).length === 0}
-                  />
-                  <span>Play only selected intervals</span>
-                </label>
               </div>
-              <p className="hint">
-                Drag the playhead to scrub. Use &quot;Import predicted labels&quot;
-                to load adjustable intervals (blue); use &quot;Import ground truth
-                labels&quot; for a green reference layer behind them. Metrics
-                (confusion + coverage) appear when both predicted and ground truth
-                Playing segments exist. With &quot;Play only selected
-                intervals&quot;, playback follows the predicted intervals only —
-                skips gaps and loops from the last segment back to the first.
-              </p>
             </div>
             </div>
           </div>
