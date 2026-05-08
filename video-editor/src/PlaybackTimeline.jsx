@@ -212,7 +212,14 @@ export default function PlaybackTimeline({
             className="playback-row-label playback-left-slot"
             aria-label="Ground truth row label"
           >
-            ground truth
+            <span
+              className="playback-row-swatch playback-row-swatch--ground-truth"
+              aria-hidden
+            />
+            <span className="playback-row-label-text">
+              <span className="playback-row-label-title">Ground Truth</span>
+              <span className="playback-row-label-subtitle">Actual Playing</span>
+            </span>
           </div>
 
           <div className="playback-body">
