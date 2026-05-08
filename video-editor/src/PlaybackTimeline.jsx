@@ -112,6 +112,14 @@ export default function PlaybackTimeline({
   }
 
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0
+  const predictedCoveragePct = useMemo(() => {
+    if (!Number.isFinite(duration) || duration <= 0) return 0
+    const merged = mergeIntervals(
+      (intervals ?? []).map(({ start, end }) => ({ start, end })),
+      duration,
+    )
+    return Math.min(100, (totalPlayingSeconds(merged) / duration) * 100)
+  }, [intervals, duration])
   const gtCoveragePct = useMemo(() => {
     if (!Number.isFinite(duration) || duration <= 0) return 0
     const merged = mergeIntervals(
@@ -156,33 +164,6 @@ export default function PlaybackTimeline({
             >
               <div className="playback-track">
                 <div className="playback-track-inactive" aria-hidden />
-
-                <div className="playback-handles">
-                  {intervals.flatMap((iv) => [
-                    <button
-                      key={`${iv.id}-start`}
-                      type="button"
-                      data-timeline-handle
-                      className="playback-handle playback-handle--start"
-                      style={{ left: `${(iv.start / duration) * 100}%` }}
-                      aria-label="Adjust interval start"
-                      onPointerDown={(e) =>
-                        onHandlePointerDown(e, iv.id, 'start')
-                      }
-                    />,
-                    <button
-                      key={`${iv.id}-end`}
-                      type="button"
-                      data-timeline-handle
-                      className="playback-handle playback-handle--end"
-                      style={{ left: `${(iv.end / duration) * 100}%` }}
-                      aria-label="Adjust interval end"
-                      onPointerDown={(e) =>
-                        onHandlePointerDown(e, iv.id, 'end')
-                      }
-                    />,
-                  ])}
-                </div>
               </div>
 
               <div
@@ -207,13 +188,13 @@ export default function PlaybackTimeline({
 
       {/* Ground truth timeline row */}
       {groundTruthIntervals && groundTruthIntervals.length > 0 ? (
-        <div className="playback-row playback-row--secondary">
+        <div className="playback-row playback-row--secondary playback-row--ground-truth">
           <div
             className="playback-row-label playback-left-slot"
             aria-label="Ground truth row label"
           >
             <span
-              className="playback-row-swatch playback-row-swatch--ground-truth"
+              className="playback-row-swatch"
               aria-hidden
             />
             <span className="playback-row-label-text">
@@ -238,7 +219,7 @@ export default function PlaybackTimeline({
                     return (
                       <div
                         key={iv.id}
-                        className="playback-interval playback-interval--ground-truth"
+                        className="playback-interval playback-interval--accent"
                         aria-hidden
                         title="Ground truth Playing"
                         style={{ left: `${left}%`, width: `${w}%` }}
@@ -264,6 +245,66 @@ export default function PlaybackTimeline({
               title="Ground truth coverage"
             >
               {`${gtCoveragePct.toFixed(1)}%`}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Predicted timeline row */}
+      {intervals && intervals.length > 0 ? (
+        <div className="playback-row playback-row--secondary playback-row--predicted">
+          <div
+            className="playback-row-label playback-left-slot"
+            aria-label="Predicted row label"
+          >
+            <span
+              className="playback-row-swatch"
+              aria-hidden
+            />
+            <span className="playback-row-label-text">
+              <span className="playback-row-label-title">Predicted Labels</span>
+              <span className="playback-row-label-subtitle">Predicted Playing</span>
+            </span>
+          </div>
+
+          <div className="playback-body">
+            <div className="playback-track-column">
+              <div
+                className="playback-stack"
+                onPointerDown={(e) => onTrackPointerDown(e, masterTrackRef)}
+                role="presentation"
+              >
+                <div className="playback-track">
+                  <div className="playback-track-inactive" aria-hidden />
+                  {intervals.map((iv) => {
+                    const left = (iv.start / duration) * 100
+                    const w = ((iv.end - iv.start) / duration) * 100
+                    return (
+                      <div
+                        key={iv.id}
+                        className="playback-interval playback-interval--accent"
+                        aria-hidden
+                        title="Predicted Playing"
+                        style={{ left: `${left}%`, width: `${w}%` }}
+                      />
+                    )
+                  })}
+                </div>
+
+                <div
+                  className="playback-playhead"
+                  data-playhead
+                  style={{ left: `${pct}%` }}
+                  onPointerDown={(e) => onPlayheadPointerDown(e, masterTrackRef)}
+                >
+                  <div className="playback-playhead-triangle" aria-hidden />
+                  <div className="playback-playhead-line" aria-hidden />
+                </div>
+              </div>
+            </div>
+
+            <div className="playback-coverage playback-right-slot" title="Predicted coverage">
+              {`${predictedCoveragePct.toFixed(1)}%`}
             </div>
           </div>
         </div>

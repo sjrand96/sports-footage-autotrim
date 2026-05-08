@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PlaybackTimeline from './PlaybackTimeline.jsx'
-import MetricsPanel from './MetricsPanel.jsx'
 import {
   gatePlaySelectedOnly,
   snapTimeForSelectedPlayStart,
@@ -223,11 +222,6 @@ export default function App() {
     gatePlaySelectedOnly(v, intervals)
   }, [playSelectedOnly, intervals])
 
-  const metricsPanelLive =
-    duration > 0 &&
-    intervals.length > 0 &&
-    groundTruthIntervals.length > 0
-
   return (
     <div className="app">
       <header className="app-header">
@@ -347,14 +341,6 @@ export default function App() {
               </p>
             </div>
             </div>
-
-            {metricsPanelLive ? (
-              <MetricsPanel
-                duration={duration}
-                intervals={intervals}
-                groundTruthIntervals={groundTruthIntervals}
-              />
-            ) : null}
           </div>
         )}
       </main>
