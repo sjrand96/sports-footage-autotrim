@@ -4,6 +4,7 @@ export default function PlaybackTimeline({
   duration,
   currentTime,
   intervals,
+  groundTruthIntervals = [],
   isPlaying,
   onTogglePlay,
   onSeek,
@@ -144,13 +145,26 @@ export default function PlaybackTimeline({
           >
             <div className="playback-track">
               <div className="playback-track-inactive" aria-hidden />
+              {groundTruthIntervals.map((iv) => {
+                const left = (iv.start / duration) * 100
+                const w = ((iv.end - iv.start) / duration) * 100
+                return (
+                  <div
+                    key={iv.id}
+                    className="playback-interval playback-interval--ground-truth"
+                    aria-hidden
+                    title="Ground truth Playing"
+                    style={{ left: `${left}%`, width: `${w}%` }}
+                  />
+                )
+              })}
               {intervals.map((iv) => {
                 const left = (iv.start / duration) * 100
                 const w = ((iv.end - iv.start) / duration) * 100
                 return (
                   <div
                     key={iv.id}
-                    className="playback-interval"
+                    className="playback-interval playback-interval--predicted"
                     style={{ left: `${left}%`, width: `${w}%` }}
                   />
                 )

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PlaybackTimeline from './PlaybackTimeline.jsx'
+import MetricsPanel from './MetricsPanel.jsx'
 import {
   gatePlaySelectedOnly,
   snapTimeForSelectedPlayStart,
@@ -16,14 +17,18 @@ const MIN_INTERVAL_SEC = 0.05
 export default function App() {
   const videoRef = useRef(null)
   const intervalIdRef = useRef(0)
+  const groundTruthIntervalIdRef = useRef(0)
   const [sourceUrl, setSourceUrl] = useState(null)
   const [fileLabel, setFileLabel] = useState('')
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [intervals, setIntervals] = useState([])
+  const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
-  const [labelsHint, setLabelsHint] = useState('')
+  const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
+  const [groundTruthLabelsImportName, setGroundTruthLabelsImportName] =
+    useState('')
 
   // clean up the old URL when the source URL changes
   const revokeUrl = useCallback((url) => {
@@ -41,6 +46,11 @@ export default function App() {
     return `iv-${intervalIdRef.current}`
   }, [])
 
+  const nextGroundTruthIntervalId = useCallback(() => {
+    groundTruthIntervalIdRef.current += 1
+    return `gt-${groundTruthIntervalIdRef.current}`
+  }, [])
+
   const onPickFile = (e) => {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -53,16 +63,18 @@ export default function App() {
     setDuration(0)
     setIsPlaying(false)
     setIntervals([])
-    setLabelsHint('')
+    setGroundTruthIntervals([])
+    setPredictLabelsImportName('')
+    setGroundTruthLabelsImportName('')
   }
 
-  const onPickGroundTruthLabels = useCallback(
+  const onPickPredictedLabels = useCallback(
     (e) => {
       const file = e.target.files?.[0]
       e.target.value = ''
       if (!file) return
       if (!Number.isFinite(duration) || duration <= 0) {
-        setLabelsHint('Wait until the clip has loaded, then try again.')
+        setPredictLabelsImportName('')
         return
       }
       const reader = new FileReader()
@@ -75,7 +87,7 @@ export default function App() {
             duration,
           )
           if (error) {
-            setLabelsHint(error)
+            setPredictLabelsImportName('')
             return
           }
           const withIds = imported.map((iv) => ({
@@ -84,17 +96,54 @@ export default function App() {
             end: iv.end,
           }))
           setIntervals(withIds)
-          setLabelsHint(
-            `Imported ${withIds.length} Playing segment${withIds.length !== 1 ? 's' : ''} from the JSON.`,
-          )
-        } catch (err) {
-          setLabelsHint(err?.message || 'Could not read that JSON export.')
+          setPredictLabelsImportName(file.name)
+        } catch {
+          setPredictLabelsImportName('')
         }
       }
-      reader.onerror = () => setLabelsHint('Failed to read file.')
+      reader.onerror = () => setPredictLabelsImportName('')
       reader.readAsText(file)
     },
     [duration, fileLabel, nextIntervalId],
+  )
+
+  const onPickGroundTruthLabels = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file) return
+      if (!Number.isFinite(duration) || duration <= 0) {
+        setGroundTruthLabelsImportName('')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const tasks = parseLabelStudioTasksJson(reader.result)
+          const { intervals: imported, error } = playingIntervalsSecondsForExport(
+            tasks,
+            fileLabel,
+            duration,
+          )
+          if (error) {
+            setGroundTruthLabelsImportName('')
+            return
+          }
+          const withIds = imported.map((iv) => ({
+            id: nextGroundTruthIntervalId(),
+            start: iv.start,
+            end: iv.end,
+          }))
+          setGroundTruthIntervals(withIds)
+          setGroundTruthLabelsImportName(file.name)
+        } catch {
+          setGroundTruthLabelsImportName('')
+        }
+      }
+      reader.onerror = () => setGroundTruthLabelsImportName('')
+      reader.readAsText(file)
+    },
+    [duration, fileLabel, nextGroundTruthIntervalId],
   )
 
   const onTimeUpdate = () => {
@@ -109,35 +158,7 @@ export default function App() {
   const onLoadedMetadata = () => {
     const v = videoRef.current
     if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return
-    const d = v.duration
-    setDuration(d)
-
-    const minGap = MIN_INTERVAL_SEC * 2
-    const minSeg = MIN_INTERVAL_SEC * 2
-    if (d <= minGap + minSeg * 2) {
-      setIntervals([{ id: nextIntervalId(), start: 0, end: d }])
-      return
-    }
-
-    const firstEnd = Math.max(minSeg, d * 0.05)
-    const secondStart = Math.min(d - minSeg, d * 0.95)
-    if (secondStart <= firstEnd + minGap) {
-      const mid = d / 2
-      setIntervals([
-        { id: nextIntervalId(), start: 0, end: Math.max(minSeg, mid - minGap / 2) },
-        {
-          id: nextIntervalId(),
-          start: Math.min(d - minSeg, mid + minGap / 2),
-          end: d,
-        },
-      ])
-      return
-    }
-
-    setIntervals([
-      { id: nextIntervalId(), start: 0, end: firstEnd },
-      { id: nextIntervalId(), start: secondStart, end: d },
-    ])
+    setDuration(v.duration)
   }
 
   const seek = useCallback((t) => {
@@ -202,6 +223,11 @@ export default function App() {
     gatePlaySelectedOnly(v, intervals)
   }, [playSelectedOnly, intervals])
 
+  const metricsPanelLive =
+    duration > 0 &&
+    intervals.length > 0 &&
+    groundTruthIntervals.length > 0
+
   return (
     <div className="app">
       <header className="app-header">
@@ -222,54 +248,79 @@ export default function App() {
             </label>
           </div>
         ) : (
-          <div className="viewer">
-            <div className="video-wrap">
-              <video
-                ref={videoRef}
-                className="video"
-                src={sourceUrl}
-                playsInline
-                draggable={false}
-                onTimeUpdate={onTimeUpdate}
-                onLoadedMetadata={onLoadedMetadata}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-              />
-            </div>
+          <div className="viewer-layout">
+            <div className="viewer-main">
+              <div className="video-wrap">
+                <video
+                  ref={videoRef}
+                  className="video"
+                  src={sourceUrl}
+                  playsInline
+                  draggable={false}
+                  onTimeUpdate={onTimeUpdate}
+                  onLoadedMetadata={onLoadedMetadata}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                />
+              </div>
 
-            <div className="controls">
+              <div className="controls">
               <div className="file-row">
                 <span className="file-name" title={fileLabel}>
                   {fileLabel}
                 </span>
-                <label
-                  className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
-                >
-                  Import ground-truth labels
-                  <input
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={onPickGroundTruthLabels}
-                    disabled={!duration}
-                    hidden
-                  />
-                </label>
+                <div className="import-json-slot import-json-slot--predicted">
+                  <label
+                    className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                  >
+                    Import predicted labels
+                    <input
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={onPickPredictedLabels}
+                      disabled={!duration}
+                      hidden
+                    />
+                  </label>
+                  {predictLabelsImportName ? (
+                    <span
+                      className="labels-json-filename"
+                      title={predictLabelsImportName}
+                    >
+                      {predictLabelsImportName}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="import-json-slot import-json-slot--truth">
+                  <label
+                    className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                  >
+                    Import ground truth labels
+                    <input
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={onPickGroundTruthLabels}
+                      disabled={!duration}
+                      hidden
+                    />
+                  </label>
+                  {groundTruthLabelsImportName ? (
+                    <span
+                      className="labels-json-filename"
+                      title={groundTruthLabelsImportName}
+                    >
+                      {groundTruthLabelsImportName}
+                    </span>
+                  ) : null}
+                </div>
               </div>
-              {labelsHint ? (
-                <p
-                  className="labels-import-hint"
-                  role="status"
-                  aria-live="polite"
-                >
-                  {labelsHint}
-                </p>
-              ) : null}
 
               <div className="playback-block">
                 <PlaybackTimeline
                   duration={duration}
                   currentTime={currentTime}
                   intervals={intervals}
+                  groundTruthIntervals={groundTruthIntervals}
                   isPlaying={isPlaying}
                   onTogglePlay={togglePlay}
                   onSeek={seek}
@@ -285,14 +336,25 @@ export default function App() {
                   <span>Play only selected intervals</span>
                 </label>
               </div>
-
               <p className="hint">
-                Drag the playhead to scrub. Drag the handles to adjust active
-                intervals (shown highlighted on the bar). With &quot;Play only
-                selected intervals&quot;, playback skips gaps and loops from the
-                end of the last highlight back to the first.
+                Drag the playhead to scrub. Use &quot;Import predicted labels&quot;
+                to load adjustable intervals (blue); use &quot;Import ground truth
+                labels&quot; for a green reference layer behind them. Metrics
+                (confusion + coverage) appear when both predicted and ground truth
+                Playing segments exist. With &quot;Play only selected
+                intervals&quot;, playback follows the predicted intervals only —
+                skips gaps and loops from the last segment back to the first.
               </p>
             </div>
+            </div>
+
+            {metricsPanelLive ? (
+              <MetricsPanel
+                duration={duration}
+                intervals={intervals}
+                groundTruthIntervals={groundTruthIntervals}
+              />
+            ) : null}
           </div>
         )}
       </main>
