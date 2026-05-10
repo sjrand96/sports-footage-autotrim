@@ -11,10 +11,10 @@ Requires (same stack as ``notebooks/placeholder_notebook.ipynb``):
     pip install ultralytics torch  # see requirements.txt
 
 Example:
-    python pose-detection/foot_topdown_experiment.py cv-pipeline/calibration/court_payloads.json \\
+    python cv-pipeline/pose-detection/foot_topdown_experiment.py cv-pipeline/calibration/court_payloads.json \\
         --npz cv-pipeline/calibration/out/homography.npz \\
-        --out-skeleton pose-detection/out/players_skeleton.png \\
-        -o pose-detection/out/players_topdown.png
+        --out-skeleton cv-pipeline/pose-detection/out/players_skeleton.png \\
+        -o cv-pipeline/pose-detection/out/players_topdown.png
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _CALIB_DIR = _REPO_ROOT / "cv-pipeline" / "calibration"
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_CALIB_DIR))
@@ -113,14 +113,14 @@ def main() -> int:
     p.add_argument(
         "--out-skeleton",
         type=Path,
-        default=_REPO_ROOT / "pose-detection" / "out" / "players_skeleton.png",
+        default=_REPO_ROOT / "cv-pipeline" / "pose-detection" / "out" / "players_skeleton.png",
         help="Camera frame with keypoints + skeleton (notebook-style plot)",
     )
     p.add_argument(
         "--out-topdown",
         "-o",
         type=Path,
-        default=_REPO_ROOT / "pose-detection" / "out" / "players_topdown.png",
+        default=_REPO_ROOT / "cv-pipeline" / "pose-detection" / "out" / "players_topdown.png",
         help="Top-down warp with foot circles",
     )
     p.add_argument("--weights", type=str, default="yolov8s-pose.pt", help="Ultralytics pose weights (see notebook)")

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Download a clip from S3 into ``pose-detection/media/<key>`` (mirrors object key under a local root).
+"""Download a clip from S3 into ``cv-pipeline/pose-detection/media/<key>`` (mirrors object key under a local root).
 
 Uses AWS credentials from the environment (same as ``data_labeling/prep_videos``): load a ``.env``
 at repo root via ``python-dotenv``.
 
 Examples:
     # Default: the clip from your Label Studio task (id 78)
-    python pose-detection/fetch_s3_clip.py
+    python cv-pipeline/pose-detection/fetch_s3_clip.py
 
-    python pose-detection/fetch_s3_clip.py "s3://bucket/clips/source/clip_006.mp4"
+    python cv-pipeline/pose-detection/fetch_s3_clip.py "s3://bucket/clips/source/clip_006.mp4"
 
-    python pose-detection/fetch_s3_clip.py --task-json path/to/task78.json
+    python cv-pipeline/pose-detection/fetch_s3_clip.py --task-json path/to/task78.json
 
 Default destination:
-    pose-detection/media/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4
+    cv-pipeline/pose-detection/media/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import os
 import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _DEFAULT_S3 = "s3://sports-footage-autotrim-bucket/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4"
 
@@ -83,7 +83,7 @@ def main() -> int:
 
     load_dotenv(_REPO_ROOT / ".env")
 
-    p = argparse.ArgumentParser(description="Download one S3 clip into pose-detection/media/")
+    p = argparse.ArgumentParser(description="Download one S3 clip into cv-pipeline/pose-detection/media/")
     p.add_argument(
         "s3_uri",
         nargs="?",
@@ -99,7 +99,7 @@ def main() -> int:
     p.add_argument(
         "--out-root",
         type=Path,
-        default=_REPO_ROOT / "pose-detection" / "media",
+        default=_REPO_ROOT / "cv-pipeline" / "pose-detection" / "media",
         help="Local directory; file is written to <out-root>/<s3-key>",
     )
     p.add_argument(

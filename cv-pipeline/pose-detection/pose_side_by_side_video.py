@@ -8,11 +8,11 @@ Uses one fixed ``homography.npz`` for the whole clip (static camera). Homography
 this camera / court; if it was fit on a different clip, results are only exploratory.
 
 Example:
-    python pose-detection/pose_side_by_side_video.py \\
-        pose-detection/media/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4 \\
+    python cv-pipeline/pose-detection/pose_side_by_side_video.py \\
+        cv-pipeline/pose-detection/media/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4 \\
         --npz cv-pipeline/calibration/out/homography.npz \\
         --fps 2 \\
-        -o pose-detection/out/clip006_pose_side_by_side.mp4
+        -o cv-pipeline/pose-detection/out/clip006_pose_side_by_side.mp4
 
 Requires: ultralytics, torch, opencv (see requirements.txt). For MP4s that import cleanly in editors,
 ``ffmpeg`` on PATH is recommended: the script writes a short-lived MPEG-4 (mp4v) file, then transcodes
@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _CALIB_DIR = _REPO_ROOT / "cv-pipeline" / "calibration"
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_CALIB_DIR))
@@ -205,7 +205,7 @@ def main() -> int:
         raise SystemExit(1) from e
 
     p = argparse.ArgumentParser(description="Side-by-side skeleton | top-down video from local clip + homography npz.")
-    p.add_argument("video", type=Path, help="Local MP4 (e.g. under pose-detection/media/…)")
+    p.add_argument("video", type=Path, help="Local MP4 (e.g. under cv-pipeline/pose-detection/media/…)")
     p.add_argument(
         "--npz",
         type=Path,
@@ -222,7 +222,7 @@ def main() -> int:
         "-o",
         "--out",
         type=Path,
-        default=_REPO_ROOT / "pose-detection" / "out" / "pose_side_by_side.mp4",
+        default=_REPO_ROOT / "cv-pipeline" / "pose-detection" / "out" / "pose_side_by_side.mp4",
     )
     p.add_argument("--panel-h", type=int, default=720, help="Stacked panel height (both panels scaled to this)")
     p.add_argument("--gap", type=int, default=12, help="Gray strip between panels (pixels)")
