@@ -5,8 +5,8 @@ video-editor/.vite/deps/
 # CV calibration outputs (npz, previews)
 cv-pipeline/calibration/out/
 
-pose-detection/out/
-pose-detection/media/
+cv-pipeline/pose-detection/out/
+cv-pipeline/pose-detection/media/
 # Ignore PyTorch model files for version control
 notebooks/*.pt
 

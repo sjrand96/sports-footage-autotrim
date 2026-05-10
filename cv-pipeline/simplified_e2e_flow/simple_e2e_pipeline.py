@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
+import random
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,10 +29,12 @@ POSE_DIR = REPO_ROOT / "cv-pipeline" / "pose-detection"
 FETCH_SCRIPT = POSE_DIR / "fetch_s3_clip.py"
 POSE_SCRIPT = POSE_DIR / "pose_side_by_side_video.py"
 DEFAULT_NPZ = REPO_ROOT / "cv-pipeline" / "calibration" / "out" / "homography.npz"
+DEFAULT_COURT_PAYLOADS = REPO_ROOT / "cv-pipeline" / "calibration" / "court_payloads.json"
 DEFAULT_CACHE_DIR = REPO_ROOT / "cv-pipeline" / "simplified_e2e_flow" / "cache"
 DEFAULT_BUCKET = "sports-footage-autotrim-bucket"
 DEFAULT_REGION = "us-west-2"
 DEFAULT_LABEL_FPS = 30.0
+DEFAULT_S3_PREFIX = "clips/"
 FEATURE_COLUMNS = [
     "n_players_total",
     "n_front_row",
@@ -43,6 +48,7 @@ FEATURE_COLUMNS = [
 _NOSE = 0
 _L_WRIST = 9
 _R_WRIST = 10
+_CLIP_KEY_RE = re.compile(r"^clips/(?P<source_id>[^/]+)/(?P=source_id)_(?P<clip_index>\d+)\.mp4$", re.IGNORECASE)
 
 
 def _load_module(name: str, path: Path) -> Any:
@@ -65,6 +71,126 @@ def _s3_uri_for_clip(bucket: str, source_id: str, clip_index: int) -> str:
 def _local_clip_path(source_id: str, clip_index: int) -> Path:
     filename = f"{source_id}_{clip_index:03d}.mp4"
     return REPO_ROOT / "cv-pipeline" / "pose-detection" / "media" / "clips" / source_id / filename
+
+
+def _clip_from_s3_key(key: str) -> tuple[str, int] | None:
+    m = _CLIP_KEY_RE.match(key.strip())
+    if not m:
+        return None
+    return m.group("source_id"), int(m.group("clip_index"))
+
+
+def _chunked(values: list[int], chunk_size: int) -> list[list[int]]:
+    return [values[i : i + chunk_size] for i in range(0, len(values), chunk_size)]
+
+
+def load_homography_source_ids(payload_path: Path) -> set[str]:
+    if not payload_path.is_file():
+        raise RuntimeError(f"court payload file not found: {payload_path}")
+    try:
+        raw = json.loads(payload_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"failed reading court payloads JSON: {payload_path}") from exc
+
+    if not isinstance(raw, list):
+        raise RuntimeError(f"court payload JSON must be a list: {payload_path}")
+
+    source_ids: set[str] = set()
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        sid = row.get("source_id")
+        if isinstance(sid, str) and sid.strip():
+            source_ids.add(sid.strip())
+    if not source_ids:
+        raise RuntimeError(f"no source_id values found in court payload JSON: {payload_path}")
+    return source_ids
+
+
+def _fetch_all_rows(client: Any, table: str, select_cols: str, *, page_size: int = 1000) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        res = client.table(table).select(select_cols).range(offset, offset + page_size - 1).execute()
+        batch = res.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
+def fetch_annotated_clip_keys(db_client: Any) -> set[tuple[str, int]]:
+    """Return {(source_id, clip_index)} for clips with at least one annotation row."""
+    ann_rows = _fetch_all_rows(db_client, "annotations", "clip_id")
+    clip_ids = sorted({int(r["clip_id"]) for r in ann_rows if r.get("clip_id") is not None})
+    if not clip_ids:
+        return set()
+
+    keys: set[tuple[str, int]] = set()
+    for chunk in _chunked(clip_ids, chunk_size=500):
+        res = db_client.table("clips").select("id,source_id,clip_index").in_("id", chunk).execute()
+        for row in res.data or []:
+            sid = row.get("source_id")
+            cidx = row.get("clip_index")
+            if sid is None or cidx is None:
+                continue
+            keys.add((str(sid), int(cidx)))
+    return keys
+
+
+def list_s3_clips(bucket: str, region: str, prefix: str) -> list[tuple[str, int, str]]:
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("boto3 is required for S3 listing. Install with `pip install boto3`.") from exc
+
+    client = boto3.client("s3", region_name=region)
+    paginator = client.get_paginator("list_objects_v2")
+    clips: list[tuple[str, int, str]] = []
+
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        contents = page.get("Contents") or []
+        for obj in contents:
+            key = obj.get("Key")
+            if not isinstance(key, str):
+                continue
+            parsed = _clip_from_s3_key(key)
+            if parsed is None:
+                continue
+            source_id, clip_index = parsed
+            clips.append((source_id, clip_index, f"s3://{bucket}/{key}"))
+
+    clips.sort(key=lambda row: (row[0], row[1]))
+    return clips
+
+
+def pick_random_s3_clips(
+    *,
+    bucket: str,
+    region: str,
+    prefix: str,
+    n: int,
+    seed: int,
+    allowed_clip_keys: set[tuple[str, int]] | None = None,
+) -> list[tuple[str, int, str]]:
+    if n <= 0:
+        raise ValueError("n must be > 0")
+
+    clips = list_s3_clips(bucket=bucket, region=region, prefix=prefix)
+    if allowed_clip_keys is not None:
+        clips = [c for c in clips if (c[0], c[1]) in allowed_clip_keys]
+    if not clips:
+        if allowed_clip_keys is None:
+            raise RuntimeError(f"no clip keys found in s3://{bucket}/{prefix}")
+        raise RuntimeError(
+            f"no annotated clip keys found in s3://{bucket}/{prefix}. "
+            "Either there are no annotations yet, or the S3 prefix/bucket doesn't overlap annotated clips."
+        )
+
+    take = min(n, len(clips))
+    rng = random.Random(seed)
+    return rng.sample(clips, k=take)
 
 
 def ensure_local_clip(*, s3_uri: str, local_path: Path, region: str) -> None:
@@ -260,14 +386,14 @@ def _extract_playing_ranges_seconds(payload: dict[str, Any], label_fps: float) -
     return ranges_sec
 
 
-def fetch_latest_annotation_payload(source_id: str, clip_index: int) -> dict[str, Any]:
-    from dotenv import load_dotenv
-
+def _get_db_helpers() -> Any:
     sys.path.insert(0, str(REPO_ROOT))
     from src import db as db_helpers
 
-    load_dotenv(REPO_ROOT / ".env")
-    client = db_helpers.get_supabase_client()
+    return db_helpers
+
+
+def fetch_latest_annotation_payload(db_helpers: Any, client: Any, source_id: str, clip_index: int) -> dict[str, Any]:
     clip_row = db_helpers.get_clip(client, source_id, clip_index)
     if clip_row is None:
         raise RuntimeError(f"clip not found in Supabase: source_id={source_id} clip_index={clip_index}")
@@ -358,32 +484,41 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--kp-conf", type=float, default=0.25)
     p.add_argument("--label-fps", type=float, default=DEFAULT_LABEL_FPS)
     p.add_argument("--npz", type=Path, default=DEFAULT_NPZ)
+    p.add_argument(
+        "--court-payloads-json",
+        type=Path,
+        default=DEFAULT_COURT_PAYLOADS,
+        help="Court keypoint payload JSON used to infer which source videos have homography support.",
+    )
     p.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    p.add_argument("--s3-bucket", default=DEFAULT_BUCKET)
+    p.add_argument("--s3-prefix", default=DEFAULT_S3_PREFIX)
+    p.add_argument("--num-random-clips", type=int, default=0)
+    p.add_argument("--random-seed", type=int, default=42)
+    p.add_argument("--list-only", action="store_true", help="Print selected clips and exit.")
+    p.add_argument("--stop-on-error", action="store_true", help="Stop immediately if one clip fails.")
     p.add_argument("--skip-download", action="store_true")
     return p.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    if args.clip_index <= 0:
-        print("--clip-index must be >= 1", file=sys.stderr)
-        return 1
-
-    source_id = args.source_id.strip()
-    clip_index = int(args.clip_index)
+def run_clip(
+    *,
+    source_id: str,
+    clip_index: int,
+    s3_uri: str,
+    args: argparse.Namespace,
+    db_helpers: Any,
+    db_client: Any,
+) -> dict[str, Any]:
     clip_stem = f"{source_id}_{clip_index:03d}"
-    s3_uri = args.s3_uri or _s3_uri_for_clip(DEFAULT_BUCKET, source_id, clip_index)
     local_clip = _local_clip_path(source_id, clip_index)
-
     features_path = args.cache_dir / f"{clip_stem}_features.parquet"
     predictions_path = args.cache_dir / f"{clip_stem}_predictions.parquet"
-    args.cache_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_download:
         ensure_local_clip(s3_uri=s3_uri, local_path=local_clip, region=args.region)
     elif not local_clip.is_file():
-        print(f"--skip-download set but clip is missing: {local_clip}", file=sys.stderr)
-        return 1
+        raise RuntimeError(f"--skip-download set but clip is missing: {local_clip}")
 
     df_feat = extract_features_for_clip(
         video_path=local_clip,
@@ -395,13 +530,23 @@ def main() -> int:
         ankle_conf=args.ankle_conf,
         kp_conf_thresh=args.kp_conf,
     )
+    df_feat.insert(0, "source_id", source_id)
+    df_feat.insert(1, "clip_index", int(clip_index))
+    df_feat.insert(2, "clip_s3_uri", s3_uri)
+    df_feat.insert(3, "clip_local_path", str(local_clip))
+
     df_feat.to_parquet(features_path, index=False)
     print(f"wrote features: {features_path}")
 
-    payload = fetch_latest_annotation_payload(source_id, clip_index)
+    payload = fetch_latest_annotation_payload(db_helpers, db_client, source_id, clip_index)
     df_labeled = add_ground_truth_labels(df_feat, payload, label_fps=args.label_fps)
 
     pred_df, metrics = train_and_predict(df_labeled)
+    pred_df.insert(0, "source_id", source_id)
+    pred_df.insert(1, "clip_index", int(clip_index))
+    pred_df.insert(2, "clip_s3_uri", s3_uri)
+    pred_df.insert(3, "clip_local_path", str(local_clip))
+
     pred_df.to_parquet(predictions_path, index=False)
     print(f"wrote predictions: {predictions_path}")
     print(
@@ -410,6 +555,123 @@ def main() -> int:
         f"recall={metrics['recall']:.4f} "
         f"f1={metrics['f1']:.4f}"
     )
+
+    return {
+        "source_id": source_id,
+        "clip_index": clip_index,
+        "n_sampled_frames": int(len(df_feat)),
+        "precision": float(metrics["precision"]),
+        "recall": float(metrics["recall"]),
+        "f1": float(metrics["f1"]),
+        "features_path": str(features_path),
+        "predictions_path": str(predictions_path),
+    }
+
+
+def main() -> int:
+    from dotenv import load_dotenv
+
+    args = parse_args()
+    load_dotenv(REPO_ROOT / ".env")
+
+    if args.clip_index <= 0:
+        print("--clip-index must be >= 1", file=sys.stderr)
+        return 1
+    if args.num_random_clips < 0:
+        print("--num-random-clips must be >= 0", file=sys.stderr)
+        return 1
+
+    args.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    db_helpers = _get_db_helpers()
+    db_client = db_helpers.get_supabase_client()
+    annotated_clip_keys = fetch_annotated_clip_keys(db_client)
+    print(f"annotated clips available in Supabase: {len(annotated_clip_keys)}")
+    homography_source_ids = load_homography_source_ids(args.court_payloads_json)
+    print(
+        "homography-supported source_ids from court payloads: "
+        f"{', '.join(sorted(homography_source_ids))}"
+    )
+    eligible_clip_keys = {k for k in annotated_clip_keys if k[0] in homography_source_ids}
+    print(f"eligible annotated clips after homography source filter: {len(eligible_clip_keys)}")
+    if not eligible_clip_keys:
+        print("no eligible annotated clips after applying homography source filter", file=sys.stderr)
+        return 1
+
+    if args.num_random_clips > 0:
+        targets = pick_random_s3_clips(
+            bucket=args.s3_bucket,
+            region=args.region,
+            prefix=args.s3_prefix,
+            n=args.num_random_clips,
+            seed=args.random_seed,
+            allowed_clip_keys=eligible_clip_keys,
+        )
+    else:
+        source_id = args.source_id.strip()
+        clip_index = int(args.clip_index)
+        if source_id not in homography_source_ids:
+            print(
+                f"requested source_id has no homography support in {args.court_payloads_json}: {source_id}",
+                file=sys.stderr,
+            )
+            return 1
+        if (source_id, clip_index) not in eligible_clip_keys:
+            print(
+                f"requested clip is not eligible (needs annotation + homography source match): "
+                f"{source_id}_{clip_index:03d}",
+                file=sys.stderr,
+            )
+            return 1
+        s3_uri = args.s3_uri or _s3_uri_for_clip(args.s3_bucket, source_id, clip_index)
+        targets = [(source_id, clip_index, s3_uri)]
+
+    print(f"selected {len(targets)} clip(s)")
+    for source_id, clip_index, s3_uri in targets:
+        print(f"  - {source_id}_{clip_index:03d}  ({s3_uri})")
+    if args.list_only:
+        return 0
+
+    results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for idx, (source_id, clip_index, s3_uri) in enumerate(targets, start=1):
+        print(f"\n[{idx}/{len(targets)}] processing {source_id}_{clip_index:03d}")
+        try:
+            out = run_clip(
+                source_id=source_id,
+                clip_index=clip_index,
+                s3_uri=s3_uri,
+                args=args,
+                db_helpers=db_helpers,
+                db_client=db_client,
+            )
+            results.append(out)
+        except Exception as exc:  # noqa: BLE001
+            err = {"source_id": source_id, "clip_index": clip_index, "error": str(exc)}
+            failures.append(err)
+            print(f"ERROR: {source_id}_{clip_index:03d}: {exc}", file=sys.stderr)
+            if args.stop_on_error:
+                break
+
+    if results:
+        df_summary = pd.DataFrame(results)
+        summary_path = args.cache_dir / "last_run_clip_metrics.parquet"
+        df_summary.to_parquet(summary_path, index=False)
+        print(f"\nwrote run summary: {summary_path}")
+        print(
+            "mean metrics "
+            f"precision={df_summary['precision'].mean():.4f} "
+            f"recall={df_summary['recall'].mean():.4f} "
+            f"f1={df_summary['f1'].mean():.4f}"
+        )
+
+    if failures:
+        print(f"\ncompleted with failures: {len(failures)} failed / {len(targets)} total", file=sys.stderr)
+        for f in failures:
+            print(f"  - {f['source_id']}_{int(f['clip_index']):03d}: {f['error']}", file=sys.stderr)
+        return 1
+
+    print(f"\ncompleted successfully: {len(results)} / {len(targets)} clips")
     return 0
 
 
