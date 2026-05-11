@@ -1,6 +1,9 @@
 data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
+cv-pipeline/simplified_e2e_flow/cache/
+.DS_Store
+yolov8s-pose.pt
 
 # CV calibration outputs (npz, previews)
 cv-pipeline/calibration/out/
