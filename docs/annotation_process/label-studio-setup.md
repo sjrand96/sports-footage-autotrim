@@ -56,15 +56,15 @@ To stop Label Studio later: `Ctrl+C` in the terminal. To restart: re-activate th
 ### Why this config
 
 - **One label, not two.** We only mark `Playing` segments. Anything unlabeled is implicitly Downtime. This avoids off-by-one frame issues at boundaries and roughly halves labeling effort.
-- **`frameRate="30"`** matches what the prep script produces. If this doesn't match the actual video framerate, the timeline math will be wrong and your annotations will land on the wrong frames.
+- **`frameRate="30"`** matches what the ingest script produces. If this doesn't match the actual video framerate, the timeline math will be wrong and your annotations will land on the wrong frames.
 - **`timelineHeight="100"`** makes the timeline panel taller (default is 64). Much more comfortable to drag on.
 - **`name="videoLabels"`** is the field name that will appear in your exported JSON. Keep this consistent across collaborators so the push script works.
 
 ## 2b. Optional: court keypoints project (homography)
 
-This is **separate** from **Volleyball Action Labels**. Timeline tasks use `$video` and are synced from `.mp4` objects; keypoint tasks use `$image`. You reuse the **same bucket and `clips/{source_id}/` prefix** as the video project—`data_labeling/prep_videos.py` uploads a `.jpg` next to each clip (middle-frame still, same resolution as the clip). Point this project’s S3 storage at those JPEGs with an image-only filename filter so tasks sync the same way as clips. Use this when you need a reference frame for court calibration (see Phase 1 in [cv-pipeline/cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)).
+This is **separate** from **Volleyball Action Labels**. Timeline tasks use `$video` and are synced from `.mp4` objects; keypoint tasks use `$image`. You reuse the **same bucket and `clips/{source_id}/` prefix** as the video project—`data_labeling/ingest_youtube_source.py` uploads a `.jpg` next to each clip (middle-frame still, same resolution as the clip). Point this project’s S3 storage at those JPEGs with an image-only filename filter so tasks sync the same way as clips. Use this when you need a reference frame for court calibration (see Phase 1 in [cv-pipeline/cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)).
 
-Exports from this project are **not** ingested by `data_labeling/push_annotations.py` (that script only understands clip `.mp4` URLs). Use `data_labeling/court_keypoints.py` to parse an export into stable JSON payloads, then fit homography with `cv-pipeline/calibration/court_homography.py` (writes `cv-pipeline/calibration/out/homography.npz`; see Phase 1 in [cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)).
+Exports from this project are **not** ingested by `data_labeling/push_timeline_annotation_export.py` (that script only understands clip `.mp4` URLs). Use `data_labeling/court_keypoints.py` to parse an export into stable JSON payloads, then fit homography with `cv-pipeline/calibration/court_homography.py` (writes `cv-pipeline/calibration/out/homography.npz`; see Phase 1 in [cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)). Target Supabase contract and DDL: [court_calibration_supabase.md](court_calibration_supabase.md).
 
 ### Create the project
 
@@ -75,7 +75,7 @@ Exports from this project are **not** ingested by `data_labeling/push_annotation
 
 ```xml
 <View>
-  <Header value="Still is middle-of-clip from prep — use the synced task where the court is clearest. One point per label (skip off-screen/occluded). Line intersections; net posts at floor and top."/>
+  <Header value="Still is middle-of-clip from ingest — use the synced task where the court is clearest. One point per label (skip off-screen/occluded). Line intersections; net posts at floor and top."/>
   <Image name="img" value="$image" zoom="true" zoomControl="true"/>
   <KeyPointLabels name="kp" toName="img" strokeWidth="3">
     <Label value="far_baseline_left" background="#E60026"/>
@@ -100,7 +100,7 @@ Exports from this project are **not** ingested by `data_labeling/push_annotation
 
 ### Sync reference frames from S3 (recommended)
 
-The prep script already writes `{source_id}_{index}.jpg` alongside each `{source_id}_{index}.mp4` under `clips/{source_id}/`.
+The ingest script already writes `{source_id}_{index}.jpg` alongside each `{source_id}_{index}.mp4` under `clips/{source_id}/`.
 
 **Volleyball Court Keypoints** → **Settings → Cloud Storage → Add Source Storage → Amazon S3**, then:
 
@@ -208,7 +208,7 @@ About pre-signed URLs: even though the bucket is publicly readable, we leave thi
 
 - **File Name Filter**: `.*\.mp4$`
 
-  Critical for our setup. The prep script uploads both `.mp4` clips and `.jpg` thumbnails to the same prefix. This regex tells Label Studio to ignore the thumbnails so they don't become labeling tasks.
+  Critical for our setup. The ingest script uploads both `.mp4` clips and `.jpg` thumbnails to the same prefix. This regex tells Label Studio to ignore the thumbnails so they don't become labeling tasks.
 
   The default `.*\.(mp4|avi|mov|wmv|webm)$` also works, but I prefer the narrower one — we know everything is mp4.
 
@@ -216,7 +216,7 @@ About pre-signed URLs: even though the bucket is publicly readable, we leave thi
 
   Required because clips live under `clips/{source_id}/`, not directly in `clips/`.
 
-- Click **Load Preview** — should list the `.mp4` files for that source (or "No files found" if prep has not been run for that id yet)
+- Click **Load Preview** — should list the `.mp4` files for that source (or "No files found" if ingest has not been run for that id yet)
 - Click **Next**
 
 ### 3c. Step 3 — Review & Confirm
@@ -287,7 +287,7 @@ After you **submit** tasks and **Export → JSON** from Label Studio, from the r
 ```
 cd path/to/sports-footage-autotrim
 source .venv/bin/activate
-python data_labeling/push_annotations.py /path/to/your-export.json
+python data_labeling/push_timeline_annotation_export.py /path/to/your-export.json
 ```
 
 Optional: `--dry-run` first. See [workflow_overview.md](workflow_overview.md) and W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).

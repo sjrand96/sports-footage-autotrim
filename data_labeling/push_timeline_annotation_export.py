@@ -1,8 +1,10 @@
-"""Push Label Studio JSON exports into Supabase (annotations table).
+"""Push Label Studio **timeline** (Playing / timelinelabels) JSON exports into Supabase (`annotations`).
+
+Court keypoint exports use `court_keypoints.py` and a separate calibration import (planned)—not this script.
 
 Usage:
-    python data_labeling/push_annotations.py path/to/project-export.json
-    python data_labeling/push_annotations.py path/to/export.json --dry-run
+    python data_labeling/push_timeline_annotation_export.py path/to/project-export.json
+    python data_labeling/push_timeline_annotation_export.py path/to/export.json --dry-run
 """
 
 from __future__ import annotations
@@ -71,7 +73,7 @@ def main() -> int:
     from src import db
 
     parser = argparse.ArgumentParser(
-        description="Import Label Studio JSON export into Supabase annotations."
+        description="Import Label Studio timeline (Playing) JSON export into Supabase annotations."
     )
     parser.add_argument("export_json", type=Path, help="Path to Label Studio JSON export file")
     parser.add_argument("--dry-run", action="store_true", help="Do not write to Supabase")

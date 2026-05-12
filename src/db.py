@@ -1,4 +1,4 @@
-"""Supabase helpers used by `data_labeling/prep_videos.py` and `data_labeling/push_annotations.py`."""
+"""Supabase helpers used by `data_labeling/ingest_youtube_source.py` and `data_labeling/push_timeline_annotation_export.py`."""
 
 from __future__ import annotations
 

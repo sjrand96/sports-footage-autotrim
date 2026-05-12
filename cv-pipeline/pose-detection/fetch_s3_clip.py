@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download a clip from S3 into ``cv-pipeline/pose-detection/media/<key>`` (mirrors object key under a local root).
 
-Uses AWS credentials from the environment (same as ``data_labeling/prep_videos``): load a ``.env``
+Uses AWS credentials from the environment (same as ``data_labeling/ingest_youtube_source``): load a ``.env``
 at repo root via ``python-dotenv``.
 
 Examples:

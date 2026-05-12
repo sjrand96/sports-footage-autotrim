@@ -1,7 +1,10 @@
 -- Sports Footage Autotrim — Database Schema (canonical DDL)
 --
--- Column semantics, S3 layout, and how prep/push use these tables:
+-- Column semantics, S3 layout, and how ingest_youtube_source / push_timeline_annotation_export use these tables:
 --   docs/annotation_process/annotation_schema_and_systems.md
+--
+-- Optional table court_calibrations (homography): DDL in
+--   docs/annotation_process/court_calibration_supabase.md
 --
 -- Run this in the Supabase SQL Editor on a fresh project to create all tables.
 -- Idempotent: safe to re-run; uses IF NOT EXISTS where possible.
@@ -25,7 +28,7 @@ create table if not exists source_videos (
   duration_sec    numeric,                      -- total length of the source video
   fps_original    numeric,                      -- fps of the original (before re-encode)
   downloaded_at   timestamptz not null default now(),
-  downloaded_by   text                          -- whoever ran the prep script
+  downloaded_by   text                          -- whoever ran ingest_youtube_source.py
 );
 
 -- ============================================================
