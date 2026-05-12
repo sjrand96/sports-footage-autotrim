@@ -1,4 +1,5 @@
-"""Supabase helpers used by `data_labeling/prep_videos.py` and `data_labeling/push_annotations.py`."""
+"""Supabase helpers used by `data_labeling/ingest_youtube_source.py`, `data_labeling/push_timeline_annotation.py`,
+`data_labeling/push_court_calibration.py`, calibration review / pose scripts, and `simplified_e2e_flow/simple_e2e_pipeline.py`."""
 
 from __future__ import annotations
 
@@ -56,6 +57,12 @@ def get_clip(client: Client, source_id: str, clip_index: int) -> dict[str, Any] 
     return res.data[0] if res.data else None
 
 
+def get_clip_by_id(client: Client, clip_id: int) -> dict[str, Any] | None:
+    """Return a clip row by primary key ``clips.id``, or None."""
+    res = client.table("clips").select("*").eq("id", clip_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
 def upsert_clip(
     client: Client,
     *,
@@ -109,6 +116,48 @@ def insert_annotation(
         "payload": payload,
     }
     res = client.table("annotations").insert(row).execute()
+    return res.data[0]
+
+
+def get_court_calibration(client: Client, source_id: str) -> dict[str, Any] | None:
+    """Return the ``court_calibrations`` row for ``source_id``, or None."""
+    res = client.table("court_calibrations").select("*").eq("source_id", source_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def list_court_calibration_source_ids(client: Client) -> set[str]:
+    """``source_id`` values that have a ``court_calibrations`` row."""
+    res = client.table("court_calibrations").select("source_id").execute()
+    out: set[str] = set()
+    for row in res.data or []:
+        sid = row.get("source_id")
+        if isinstance(sid, str) and sid.strip():
+            out.add(sid.strip())
+    return out
+
+
+def list_court_calibrations(client: Client) -> list[dict[str, Any]]:
+    """All calibration rows, ordered by ``source_id`` (for batch review)."""
+    res = client.table("court_calibrations").select("*").order("source_id").execute()
+    return list(res.data or [])
+
+
+def upsert_court_calibration(client: Client, row: dict[str, Any]) -> dict[str, Any]:
+    """Insert or replace one `court_calibrations` row keyed by ``source_id``; keeps ``created_at`` on update."""
+    sid = row["source_id"]
+    prev = (
+        client.table("court_calibrations")
+        .select("created_at")
+        .eq("source_id", sid)
+        .limit(1)
+        .execute()
+    )
+    payload = dict(row)
+    if prev.data:
+        payload["created_at"] = prev.data[0]["created_at"]
+    res = client.table("court_calibrations").upsert(payload, on_conflict="source_id").execute()
+    if not res.data:
+        raise RuntimeError(f"court_calibrations upsert returned no data for source_id={sid!r}")
     return res.data[0]
 
 

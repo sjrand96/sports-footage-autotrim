@@ -1,4 +1,0 @@
-Fundamentally, I think there are three tasks to be done here:
-1. The quark keypoints and database pushing stuff should go into the data labeling subdirectory. The thing that actually takes the JSON and tidies it and extracts the relevant data that we might push to the database.
-2. The calibration stuff should be able to take in that same JSON as a proxy for the database, where we'll actually use it later. Having flexibility to either might be useful.
-3. Be able to do the interactive homography. I don't think we need the static image anymore.  I'm just a little overwhelmed by the number of files, so talk me through how we should manage this.

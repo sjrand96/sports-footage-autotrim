@@ -322,6 +322,53 @@ def save_calibration_npz(
     np.savez_compressed(path, **payload)
 
 
+def fit_calibration_record_for_db(
+    rec: CalibrationRecord,
+    geometry_txt: Path,
+    *,
+    margin_m: float = _MARGIN_M,
+    pixels_per_metre: float = _PIXELS_PER_METRE,
+    ransac_thresh_px: float = 4.0,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Fit homography from keypoints + geometry; return DB column fragment and fit diagnostics.
+
+    ``row_fragment`` keys: ``homography_matrix`` (3×3 nested lists, world→image),
+    ``world_wx_min``, ``world_wx_max``, ``world_wy_min``, ``world_wy_max``,
+    ``pixels_per_metre``, ``keypoints`` (``[{label, x_px, y_px}, ...]`` sorted by label).
+
+    ``info`` includes RMSE / inlier counts and ``used_labels`` (planar homography subset).
+    """
+    world_pts = load_planar_world_points(geometry_txt)
+    img_xy, w_xy, used_labels = image_world_correspondences(rec, world_pts)
+    H, mask, hinfo = compute_homography(img_xy, w_xy, ransac_thresh_px=ransac_thresh_px)
+    if H is None:
+        raise RuntimeError("findHomography failed")
+    wx_min, wx_max, wy_min, wy_max = world_canvas_bounds(w_xy, margin_m=margin_m)
+    keypoints_db = [
+        {"label": kp.label, "x_px": round(float(kp.x_px), 4), "y_px": round(float(kp.y_px), 4)}
+        for kp in sorted(rec.keypoints, key=lambda k: k.label)
+    ]
+    H_list = np.asarray(H, dtype=np.float64).tolist()
+    row_fragment: dict[str, Any] = {
+        "homography_matrix": H_list,
+        "world_wx_min": float(wx_min),
+        "world_wx_max": float(wx_max),
+        "world_wy_min": float(wy_min),
+        "world_wy_max": float(wy_max),
+        "pixels_per_metre": float(pixels_per_metre),
+        "keypoints": keypoints_db,
+    }
+    info: dict[str, Any] = {
+        **hinfo,
+        "used_labels": list(used_labels),
+        "n_planar_pairs": len(used_labels),
+        "skipped_non_planar": sorted(_SKIP_LABELS_FOR_H & {k.label for k in rec.keypoints}),
+    }
+    if mask is not None:
+        info["inlier_count_mask"] = int(mask.sum())
+    return row_fragment, info
+
+
 def fit_homography_from_export_task(
     calibration_json: Path,
     *,

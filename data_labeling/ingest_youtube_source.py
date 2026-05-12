@@ -1,8 +1,8 @@
-"""Download a YouTube video, segment it into 1-minute 30fps clips, generate
-thumbnails, upload everything to S3, and write metadata to Supabase.
+"""Download a YouTube source video, segment into 1-minute 30fps clips, generate
+thumbnails, upload to S3, and upsert `source_videos` + `clips` in Supabase.
 
 Usage:
-    python data_labeling/prep_videos.py <youtube_url> [--display-name "Game name"]
+    python data_labeling/ingest_youtube_source.py <youtube_url> [--display-name "Game name"]
                                                    [--force]
                                                    [--software-encode]
 
@@ -404,7 +404,7 @@ def main() -> int:
     from dotenv import load_dotenv
 
     parser = argparse.ArgumentParser(
-        description="Download a YouTube video, segment to 60s/30fps clips, upload to S3, write metadata to Supabase."
+        description="Ingest a YouTube source: download, segment to 60s/30fps clips, upload to S3, upsert source_videos and clips in Supabase."
     )
     parser.add_argument("url", help="YouTube URL or 11-char video ID")
     parser.add_argument("--display-name", default=None, help="Human-readable name (e.g. 'USCG vs Stanford 4/15')")
