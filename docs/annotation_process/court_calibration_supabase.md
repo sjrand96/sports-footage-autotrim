@@ -93,5 +93,7 @@ create index if not exists court_calibrations_updated_at_idx
 
 ## Related code (today)
 
+- Push LS export → DB: `data_labeling/push_court_calibration.py`
 - Normalized keypoint payloads from exports: `data_labeling/court_keypoints.py` (`calibration_record_to_json`, `kind: court_keypoints_label_studio`).
-- Fit + npz layout: `cv-pipeline/calibration/court_homography.py`, `_load_homography_npz` in `cv-pipeline/pose-detection/pose_side_by_side_video.py`.
+- Fit + npz layout: `cv-pipeline/calibration/court_homography.py` (`fit_calibration_record_for_db`), `_load_homography_npz` in `cv-pipeline/pose-detection/pose_side_by_side_video.py`.
+- Supabase upsert: `src/db.py` (`upsert_court_calibration`).

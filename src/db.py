@@ -1,4 +1,4 @@
-"""Supabase helpers used by `data_labeling/ingest_youtube_source.py` and `data_labeling/push_timeline_annotation_export.py`."""
+"""Supabase helpers used by `data_labeling/ingest_youtube_source.py`, `data_labeling/push_timeline_annotation.py`, and `data_labeling/push_court_calibration.py`."""
 
 from __future__ import annotations
 
@@ -109,6 +109,25 @@ def insert_annotation(
         "payload": payload,
     }
     res = client.table("annotations").insert(row).execute()
+    return res.data[0]
+
+
+def upsert_court_calibration(client: Client, row: dict[str, Any]) -> dict[str, Any]:
+    """Insert or replace one `court_calibrations` row keyed by ``source_id``; keeps ``created_at`` on update."""
+    sid = row["source_id"]
+    prev = (
+        client.table("court_calibrations")
+        .select("created_at")
+        .eq("source_id", sid)
+        .limit(1)
+        .execute()
+    )
+    payload = dict(row)
+    if prev.data:
+        payload["created_at"] = prev.data[0]["created_at"]
+    res = client.table("court_calibrations").upsert(payload, on_conflict="source_id").execute()
+    if not res.data:
+        raise RuntimeError(f"court_calibrations upsert returned no data for source_id={sid!r}")
     return res.data[0]
 
 

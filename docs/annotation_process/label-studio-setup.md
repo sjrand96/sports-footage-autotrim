@@ -64,7 +64,7 @@ To stop Label Studio later: `Ctrl+C` in the terminal. To restart: re-activate th
 
 This is **separate** from **Volleyball Action Labels**. Timeline tasks use `$video` and are synced from `.mp4` objects; keypoint tasks use `$image`. You reuse the **same bucket and `clips/{source_id}/` prefix** as the video project—`data_labeling/ingest_youtube_source.py` uploads a `.jpg` next to each clip (middle-frame still, same resolution as the clip). Point this project’s S3 storage at those JPEGs with an image-only filename filter so tasks sync the same way as clips. Use this when you need a reference frame for court calibration (see Phase 1 in [cv-pipeline/cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)).
 
-Exports from this project are **not** ingested by `data_labeling/push_timeline_annotation_export.py` (that script only understands clip `.mp4` URLs). Use `data_labeling/court_keypoints.py` to parse an export into stable JSON payloads, then fit homography with `cv-pipeline/calibration/court_homography.py` (writes `cv-pipeline/calibration/out/homography.npz`; see Phase 1 in [cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)). Target Supabase contract and DDL: [court_calibration_supabase.md](court_calibration_supabase.md).
+Exports from this project are **not** ingested by `data_labeling/push_timeline_annotation.py` (that script only understands clip `.mp4` URLs). Use `data_labeling/court_keypoints.py` to parse an export into stable JSON payloads, then fit homography with `cv-pipeline/calibration/court_homography.py` (writes `cv-pipeline/calibration/out/homography.npz`; see Phase 1 in [cv_pipeline.md](../../cv-pipeline/cv_pipeline.md)). Target Supabase contract and DDL: [court_calibration_supabase.md](court_calibration_supabase.md).
 
 ### Create the project
 
@@ -287,7 +287,7 @@ After you **submit** tasks and **Export → JSON** from Label Studio, from the r
 ```
 cd path/to/sports-footage-autotrim
 source .venv/bin/activate
-python data_labeling/push_timeline_annotation_export.py /path/to/your-export.json
+python data_labeling/push_timeline_annotation.py /path/to/your-export.json
 ```
 
 Optional: `--dry-run` first. See [workflow_overview.md](workflow_overview.md) and W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).

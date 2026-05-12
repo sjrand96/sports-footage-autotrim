@@ -6,7 +6,7 @@ End-to-end flow: **YouTube → clips on S3 + DB → Label Studio → annotations
 
 1. **Machine tools:** `brew install yt-dlp ffmpeg` (or equivalent).
 2. **Python:** repo root → create a venv, then `pip install -e .` (uses [pyproject.toml](../../pyproject.toml) for boto3, supabase, dotenv, etc.).
-3. **`.env`:** copy the template file shared on **WhatsApp** into `.env` in the repo root and fill in values (shared AWS + Supabase credentials, your personal **`ANNOTATOR_NAME`**, etc.). `data_labeling/ingest_youtube_source.py` and `data_labeling/push_timeline_annotation_export.py` both read it via `python-dotenv`.
+3. **`.env`:** copy the template file shared on **WhatsApp** into `.env` in the repo root and fill in values (shared AWS + Supabase credentials, your personal **`ANNOTATOR_NAME`**, etc.). `data_labeling/ingest_youtube_source.py` and `data_labeling/push_timeline_annotation.py` both read it via `python-dotenv`.
 4. **Label Studio:** follow [label-studio-setup.md](label-studio-setup.md) (venv, project XML, S3 storage with prefix `clips/{source_id}/`). High-level layout and credentials: [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
 
 Supabase **tables already exist** for this project — no SQL bootstrap step for collaborators.
@@ -18,7 +18,7 @@ Supabase **tables already exist** for this project — no SQL bootstrap step for
 3. **Claim** the row if someone else will label it; set status as your team defines.
 4. **Label Studio:** set S3 source **prefix** to `clips/{source_id}/`, **Sync** tasks. Open each task and mark **Playing** only (timeline regions where the ball is in play). **Anything you do not label is treated as downtime** — you do not need separate Downtime regions. When finished with a task, press **Submit** in the **bottom-right** of the labeling UI (submitted tasks are what the JSON export includes).
 5. **Export:** Data Manager → **Export** → format **JSON** (full common format), save the file.
-6. **Import timeline export:** `python data_labeling/push_timeline_annotation_export.py /path/to/export.json` (optional `--dry-run` first). Requires `.env` Supabase + `ANNOTATOR_NAME`. Inserts one row per task per annotator (skips duplicates already in DB). See W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
+6. **Push timeline export:** `python data_labeling/push_timeline_annotation.py /path/to/export.json` (optional `--dry-run` first). Requires `.env` Supabase + `ANNOTATOR_NAME`. Inserts one row per task per annotator (skips duplicates already in DB). See W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
 7. **Google Sheet:** mark **Done** (and dates) when finished.
 
 ## Flow diagram
@@ -35,18 +35,18 @@ flowchart TD
 
   SH[Google Sheet coordination]
 
-  subgraph label [Label and import timeline]
+  subgraph label [Label and push timeline]
     LS[Label Studio local]
     SYNC["S3 prefix clips/source_id/ then Sync"]
     ANN["Mark Playing regions then Submit bottom-right"]
     EXP[Export JSON]
-    IMPORT[data_labeling/push_timeline_annotation_export.py]
+    PUSH[data_labeling/push_timeline_annotation.py]
     SB2[Supabase annotations]
     LS --> SYNC
     SYNC --> ANN
     ANN --> EXP
-    EXP --> IMPORT
-    IMPORT --> SB2
+    EXP --> PUSH
+    PUSH --> SB2
   end
 
   SB1 --> SH

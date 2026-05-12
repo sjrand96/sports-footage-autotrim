@@ -59,7 +59,7 @@ class CalibrationRecord:
 
 
 def pick_latest_annotation(annotations: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Same policy as ``data_labeling/push_timeline_annotation_export.py`` (non-cancelled, latest by time)."""
+    """Same policy as ``data_labeling/push_timeline_annotation.py`` (non-cancelled, latest by time)."""
     candidates: list[dict[str, Any]] = []
     for a in annotations:
         if not isinstance(a, dict):

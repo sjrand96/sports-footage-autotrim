@@ -13,9 +13,10 @@
 | [docs/annotation_process/court_calibration_supabase.md](docs/annotation_process/court_calibration_supabase.md) | Court homography: Label Studio stills, `court_calibrations` DDL + contract |
 | [docs/schema.md](docs/schema.md) | Executable **SQL** for Supabase (DDL only) |
 | [weekly-updates/](weekly-updates/) | **Project scope, roadmap, milestones, evaluation** (e.g. [initial_proposal.md](weekly-updates/initial_proposal.md)) |
-| [data_labeling/README.md](data_labeling/README.md) | Scripts hub (ingest, timeline export, court keypoints) + links to docs |
+| [data_labeling/README.md](data_labeling/README.md) | Scripts hub (ingest, push timeline annotations, push court calibration, court_keypoints) + links to docs |
 | [data_labeling/ingest_youtube_source.py](data_labeling/ingest_youtube_source.py) | YouTube URL → 60 s / 30 fps clips → S3 + `source_videos` / `clips` |
-| [data_labeling/push_timeline_annotation_export.py](data_labeling/push_timeline_annotation_export.py) | Label Studio **timeline** export (Playing) → `annotations` rows |
+| [data_labeling/push_timeline_annotation.py](data_labeling/push_timeline_annotation.py) | Label Studio **timeline** export (Playing) → `annotations` rows |
+| [data_labeling/push_court_calibration.py](data_labeling/push_court_calibration.py) | Court keypoint export → fit → `court_calibrations` upsert |
 | [data_labeling/court_keypoints.py](data_labeling/court_keypoints.py) | Court **KeyPointLabels** export → normalized JSON (`calibration_record_to_json`) |
 | [src/db.py](src/db.py) | Shared Supabase helpers for the scripts above |
 | [pyproject.toml](pyproject.toml) | Python deps for the pipeline (`pip install -e .`) |

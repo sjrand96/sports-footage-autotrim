@@ -1,6 +1,6 @@
 -- Sports Footage Autotrim — Database Schema (canonical DDL)
 --
--- Column semantics, S3 layout, and how ingest_youtube_source / push_timeline_annotation_export use these tables:
+-- Column semantics, S3 layout, and how ingest_youtube_source / push_timeline_annotation / push_court_calibration use these tables:
 --   docs/annotation_process/annotation_schema_and_systems.md
 --
 -- Optional table court_calibrations (homography): DDL in

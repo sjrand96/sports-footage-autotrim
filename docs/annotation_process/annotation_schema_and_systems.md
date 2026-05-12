@@ -12,7 +12,7 @@ Designed for a small team of technical collaborators (CS master's students) shar
 - **AWS S3** — `sports-footage-autotrim-bucket` (us-west-2). Public-read. Stores source videos and clips.
 - **Supabase Postgres** — project URL `https://jlcgaxesuwcehqyfbbur.supabase.co`. Tracks all metadata.
 - **Label Studio (per-person, local)**. Each collaborator runs their own Label Studio instance on `localhost:8080`. They share AWS credentials to read from the same S3 bucket but have independent task lists and annotation history.
-- **Timeline export script** (Python). Imports Label Studio **timeline** JSON exports into Supabase (`push_timeline_annotation_export.py`).
+- **Timeline push script** (Python). Pushes Label Studio **timeline** JSON exports into Supabase (`push_timeline_annotation.py`).
 - **Coordination spreadsheet** (Google Sheet). Lightweight ledger of which source videos are claimed, in progress, and done.
 
 ## High-level data flow
@@ -42,7 +42,7 @@ YouTube URL
        │  configures S3 source storage with prefix matching claimed source_id
        │  syncs, annotates
        ▼
-[push_timeline_annotation_export.py](../../data_labeling/push_timeline_annotation_export.py)
+[push_timeline_annotation.py]
        │  reads Label Studio JSON export
        │  resolves S3 URL → clip_id via Supabase lookup
        │  stamps with ANNOTATOR_NAME from env
@@ -85,7 +85,7 @@ Three tables:
 
 - **`source_videos`** — one row per ingested YouTube video (`id` = video id).
 - **`clips`** — one row per 1-minute segment (`source_id`, `clip_index`), S3 keys, optional thumbnail key, timing fields.
-- **`annotations`** — rows written by `data_labeling/push_timeline_annotation_export.py` (`clip_id` FK, Label Studio ids, `annotator`, `lead_time_sec`, `payload` JSON).
+- **`annotations`** — rows written by `data_labeling/push_timeline_annotation.py` (`clip_id` FK, Label Studio ids, `annotator`, `lead_time_sec`, `payload` JSON).
 
 **Executable DDL** (creates tables and indexes; idempotent `IF NOT EXISTS`): use [schema.md](../schema.md) — paste into the Supabase SQL Editor when bootstrapping a new project. For collaborators on an existing project, tables are already present; this file is the reference when migrations are needed.
 
@@ -94,7 +94,7 @@ Semantics:
 - `source_videos.id` is the YouTube ID (text), not a serial — straightforward joins from URLs and paths.
 - `annotations.payload` stores a JSON object with `label_studio_task` and `label_studio_annotation` (full export context for the pushed row). Evolves without schema migrations when the LS export shape changes.
 - `annotations.annotator` is set from each collaborator’s `ANNOTATOR_NAME` in `.env` — local Label Studio’s internal user id is not distinctive across machines.
-- Multiple rows per `clip_id` are normal (different annotators or re-pushes). `data_labeling/push_timeline_annotation_export.py` skips inserting a duplicate for the same `(clip_id, label_studio_task_id, annotator)`; otherwise each run can add new rows.
+- Multiple rows per `clip_id` are normal (different annotators or re-pushes). `data_labeling/push_timeline_annotation.py` skips inserting a duplicate for the same `(clip_id, label_studio_task_id, annotator)`; otherwise each run can add new rows.
 
 ## S3 layout
 
@@ -145,7 +145,7 @@ Status values: `Available`, `Claimed`, `Annotating`, `Done`, `Issues`.
 2. An annotator picks an `Available` row, changes status to `Claimed` with their name in `Assignee`, sets `Started` date.
 3. They configure their local Label Studio's S3 source storage prefix to `clips/{source_id}/`, click Sync. Status moves to `Annotating`.
 4. They annotate all clips for that source (Playing-only convention; see [workflow_overview.md](workflow_overview.md)).
-5. They export JSON and run `python data_labeling/push_timeline_annotation_export.py export.json`. Status moves to `Done`, `Finished` date is filled in.
+5. They export JSON and run `python data_labeling/push_timeline_annotation.py export.json`. Status moves to `Done`, `Finished` date is filled in.
 
 ### Conflict avoidance
 
@@ -185,7 +185,7 @@ Each collaborator does this in their own local Label Studio:
 3. Click Sync
 4. Tasks for that source's clips appear
 5. Annotate all tasks (convention: **Playing** regions only; unlabeled = downtime — see [workflow_overview.md](workflow_overview.md))
-6. Export JSON from Label Studio (Data Manager → Export → **JSON**), then run `python data_labeling/push_timeline_annotation_export.py` (below)
+6. Export JSON from Label Studio (Data Manager → Export → **JSON**), then run `python data_labeling/push_timeline_annotation.py` (below)
 7. Mark `Done` in the sheet
 
 ### W3: Push Label Studio export to Supabase
@@ -193,8 +193,8 @@ Each collaborator does this in their own local Label Studio:
 Run after you have **submitted** annotations and exported **JSON** (Label Studio common format) from your local Label Studio project.
 
 ```bash
-python data_labeling/push_timeline_annotation_export.py /path/to/project-N-at-....json
-python data_labeling/push_timeline_annotation_export.py /path/to/export.json --dry-run   # no DB writes
+python data_labeling/push_timeline_annotation.py /path/to/project-N-at-....json
+python data_labeling/push_timeline_annotation.py /path/to/export.json --dry-run   # no DB writes
 ```
 
 **`.env` required for this script:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ANNOTATOR_NAME` (your stable handle — same idea as for ingest’s `downloaded_by`).
@@ -231,7 +231,7 @@ ANNOTATOR_NAME=<your handle, e.g. spencer>
 
 - AWS: one IAM user (`volleyball-pipeline`) with read/write to the bucket. Same credentials used by everyone's ingest script and everyone's local Label Studio S3 connection.
 - Supabase: service role key. Bypasses RLS, full table access. Acceptable because the `.env` is shared only with trusted collaborators.
-- Label Studio: each person runs their own instance and uses the UI; **`data_labeling/ingest_youtube_source.py` and `data_labeling/push_timeline_annotation_export.py` do not read any Label Studio URL or API key** — only the JSON export file for push. If you later add a script that calls the Label Studio REST API, you would introduce those variables then.
+- Label Studio: each person runs their own instance and uses the UI; **`data_labeling/ingest_youtube_source.py` and `data_labeling/push_timeline_annotation.py` do not read any Label Studio URL or API key** — only the JSON export file for push. If you later add a script that calls the Label Studio REST API, you would introduce those variables then.
 
 If a collaborator leaves: rotate the IAM access key and Supabase service key, redistribute shared `.env` values. Their local Label Studio instance has no shared state to revoke.
 
@@ -251,11 +251,12 @@ sports-footage-autotrim/
 ├── pyproject.toml                           # pipeline deps (boto3, supabase, …)
 ├── requirements.txt                         # optional notebook / CV stack
 ├── src/
-│   └── db.py                                # Supabase helpers (ingest + timeline push)
+│   └── db.py                                # Supabase helpers (ingest, timeline, court calibration)
 ├── data_labeling/
 │   ├── README.md                            # scripts hub → docs
 │   ├── ingest_youtube_source.py             # W1: YouTube → segments, S3, Supabase
-│   ├── push_timeline_annotation_export.py   # W3: LS timeline export → annotations
+│   ├── push_timeline_annotation.py         # W3: LS timeline export → annotations
+│   ├── push_court_calibration.py            # court LS export → court_calibrations
 │   └── court_keypoints.py                   # court LS export → normalized JSON
 └── ...
 ```
@@ -280,7 +281,7 @@ Local ingest uses `./workdir/{youtube_id}/` (download + `clips/`); that director
 | Source identifier | YouTube video ID | Unique, stable, URL-safe, no sanitization |
 | Reprocessing | Overwrite in place | Simpler model; annotations stay attached to logical clip |
 | Auth | Shared service credentials in `.env` | Small trusted team, simplest path, easy to rotate |
-| Annotation sync | Manual `data_labeling/push_timeline_annotation_export.py` | Avoids webhook infrastructure |
+| Annotation sync | Manual `data_labeling/push_timeline_annotation.py` | Avoids webhook infrastructure |
 | Label Studio deployment | Per-person local | Avoids EC2 setup overhead; team is small enough that coordination via spreadsheet works |
 | Work coordination | Google Sheet | Lightweight, human-readable, no infra |
 | Annotator identity | `ANNOTATOR_NAME` env var stamped on each row | Local LS gives everyone annotator ID `1`; can't distinguish without an explicit name |
