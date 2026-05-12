@@ -221,6 +221,50 @@ def calibration_payload_to_record(d: dict[str, Any]) -> CalibrationRecord:
     )
 
 
+def calibration_record_from_court_calibrations_row(row: dict[str, Any]) -> CalibrationRecord:
+    """Rebuild a :class:`CalibrationRecord` from a Supabase ``court_calibrations`` row (for CV / review)."""
+    w = int(row["ref_image_width_px"])
+    h = int(row["ref_image_height_px"])
+    keypoints: list[Keypoint] = []
+    for item in row.get("keypoints") or []:
+        if not isinstance(item, dict):
+            continue
+        x_px = float(item["x_px"])
+        y_px = float(item["y_px"])
+        x_pct = (100.0 * x_px / w) if w > 0 else 0.0
+        y_pct = (100.0 * y_px / h) if h > 0 else 0.0
+        keypoints.append(
+            Keypoint(
+                label=str(item["label"]),
+                x_pct=x_pct,
+                y_pct=y_pct,
+                x_px=x_px,
+                y_px=y_px,
+            )
+        )
+    rc = row.get("ref_clip_index")
+    clip_index = int(rc) if rc is not None else -1
+    tid = row.get("label_studio_task_id")
+    aid = row.get("label_studio_annotation_id")
+    pid = row.get("label_studio_project_id")
+    return CalibrationRecord(
+        source_id=str(row.get("source_id") or ""),
+        clip_index=clip_index,
+        image_s3_bucket=str(row.get("ref_image_s3_bucket") or ""),
+        image_s3_key=str(row.get("ref_image_s3_key") or ""),
+        image_width_px=w,
+        image_height_px=h,
+        label_studio_task_id=int(tid) if tid is not None else 0,
+        label_studio_annotation_id=int(aid) if aid is not None else 0,
+        label_studio_project_id=int(pid) if pid is not None else None,
+        lead_time_sec=None,
+        annotation_created_at=None,
+        annotation_updated_at=None,
+        keypoints=keypoints,
+        raw_image_ref="",
+    )
+
+
 def load_calibration_records(path: Path) -> list[CalibrationRecord]:
     """Load calibration records from either:
 

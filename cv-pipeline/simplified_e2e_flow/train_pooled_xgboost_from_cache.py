@@ -22,6 +22,9 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precisio
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_CACHE_DIR = _REPO_ROOT / "cv-pipeline" / "simplified_e2e_flow" / "cache"
+
 FEATURE_COLUMNS = [
     "n_players_total",
     "n_front_row",
@@ -39,8 +42,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--cache-dir",
         type=Path,
-        default=Path("cv-pipeline/simplified_e2e_flow/cache"),
-        help="Directory containing *_features.parquet and *_predictions.parquet files.",
+        default=_DEFAULT_CACHE_DIR,
+        help=f"Directory with paired parquets (default: {_DEFAULT_CACHE_DIR})",
     )
     p.add_argument("--test-size", type=float, default=0.2, help="Fraction of clips held out for test.")
     p.add_argument("--random-seed", type=int, default=42)
@@ -94,8 +97,12 @@ def load_paired_clip_rows(cache_dir: Path) -> pd.DataFrame:
 
     shared_stems = sorted(set(feature_by_stem) & set(pred_by_stem))
     if not shared_stems:
+        n_feat = len(features_files)
+        n_pred = len(predictions_files)
         raise RuntimeError(
-            f"No paired feature/prediction parquets in {cache_dir}. Need matching *_features.parquet and *_predictions.parquet."
+            f"No paired feature/prediction parquets in {cache_dir.resolve()} "
+            f"(found {n_feat} *_features.parquet, {n_pred} *_predictions.parquet). "
+            "Need matching stems, e.g. foo_001_features.parquet + foo_001_predictions.parquet."
         )
 
     chunks: list[pd.DataFrame] = []
@@ -203,11 +210,17 @@ def train_and_evaluate(df: pd.DataFrame, args: argparse.Namespace) -> tuple[dict
 
 def main() -> int:
     args = parse_args()
-    df = load_paired_clip_rows(args.cache_dir)
+    cache_dir = args.cache_dir.expanduser()
+    if not cache_dir.is_absolute():
+        cache_dir = (Path.cwd() / cache_dir).resolve()
+    else:
+        cache_dir = cache_dir.resolve()
+
+    df = load_paired_clip_rows(cache_dir)
     report, test_preds, model = train_and_evaluate(df, args)
 
     print("=== Pooled XGBoost Evaluation ===")
-    print(f"cache_dir: {args.cache_dir}")
+    print(f"cache_dir: {cache_dir}")
     print(f"total rows: {report['n_total_rows']}")
     print(f"train rows / clips: {report['n_train_rows']} / {report['n_train_clips']}")
     print(f"test rows / clips:  {report['n_test_rows']} / {report['n_test_clips']}")

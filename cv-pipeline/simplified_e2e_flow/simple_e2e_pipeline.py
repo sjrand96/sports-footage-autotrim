@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Run the simplified single-clip E2E pipeline.
 
-This script follows `cv-pipeline/simplified_e2e_flow/simple_e2e_plan.md`:
-1) Ensure one clip is available locally (download from S3 if missing)
-2) Extract per-frame features from YOLO pose + homography projection
-3) Fetch latest ground-truth annotation from Supabase
-4) Build per-frame labels, train placeholder XGBoost classifier
-5) Write features/predictions parquet outputs
+Follows `cv-pipeline/simplified_e2e_flow/simple_e2e_plan.md`:
+1) Download clip from S3 (unless cached)
+2) Per-frame features from YOLO + homography from Supabase ``court_calibrations``
+3) Latest timeline annotation from Supabase → ``is_playing`` labels
+4) Placeholder XGBoost + parquet outputs
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
-import json
 import os
 import random
 import re
@@ -26,15 +24,19 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POSE_DIR = REPO_ROOT / "cv-pipeline" / "pose-detection"
+CALIB_DIR = REPO_ROOT / "cv-pipeline" / "calibration"
 FETCH_SCRIPT = POSE_DIR / "fetch_s3_clip.py"
 POSE_SCRIPT = POSE_DIR / "pose_side_by_side_video.py"
-DEFAULT_NPZ = REPO_ROOT / "cv-pipeline" / "calibration" / "out" / "homography.npz"
-DEFAULT_COURT_PAYLOADS = REPO_ROOT / "cv-pipeline" / "calibration" / "court_payloads.json"
 DEFAULT_CACHE_DIR = REPO_ROOT / "cv-pipeline" / "simplified_e2e_flow" / "cache"
 DEFAULT_BUCKET = "sports-footage-autotrim-bucket"
 DEFAULT_REGION = "us-west-2"
 DEFAULT_LABEL_FPS = 30.0
 DEFAULT_S3_PREFIX = "clips/"
+WEIGHTS_DEFAULT = "yolov8s-pose.pt"
+IMGSZ_DEFAULT = 1280
+DET_CONF_DEFAULT = 0.15
+ANKLE_CONF_DEFAULT = 0.25
+KP_CONF_DEFAULT = 0.25
 FEATURE_COLUMNS = [
     "n_players_total",
     "n_front_row",
@@ -63,9 +65,9 @@ def _load_module(name: str, path: Path) -> Any:
 FETCH_MOD = _load_module("fetch_s3_clip_module", FETCH_SCRIPT)
 POSE_MOD = _load_module("pose_side_by_side_module", POSE_SCRIPT)
 
-
-def _s3_uri_for_clip(bucket: str, source_id: str, clip_index: int) -> str:
-    return f"s3://{bucket}/clips/{source_id}/{source_id}_{clip_index:03d}.mp4"
+if str(CALIB_DIR) not in sys.path:
+    sys.path.insert(0, str(CALIB_DIR))
+from homography_io import homography_arrays_from_court_calibration_row  # noqa: E402
 
 
 def _local_clip_path(source_id: str, clip_index: int) -> Path:
@@ -82,29 +84,6 @@ def _clip_from_s3_key(key: str) -> tuple[str, int] | None:
 
 def _chunked(values: list[int], chunk_size: int) -> list[list[int]]:
     return [values[i : i + chunk_size] for i in range(0, len(values), chunk_size)]
-
-
-def load_homography_source_ids(payload_path: Path) -> set[str]:
-    if not payload_path.is_file():
-        raise RuntimeError(f"court payload file not found: {payload_path}")
-    try:
-        raw = json.loads(payload_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"failed reading court payloads JSON: {payload_path}") from exc
-
-    if not isinstance(raw, list):
-        raise RuntimeError(f"court payload JSON must be a list: {payload_path}")
-
-    source_ids: set[str] = set()
-    for row in raw:
-        if not isinstance(row, dict):
-            continue
-        sid = row.get("source_id")
-        if isinstance(sid, str) and sid.strip():
-            source_ids.add(sid.strip())
-    if not source_ids:
-        raise RuntimeError(f"no source_id values found in court payload JSON: {payload_path}")
-    return source_ids
 
 
 def _fetch_all_rows(client: Any, table: str, select_cols: str, *, page_size: int = 1000) -> list[dict[str, Any]]:
@@ -238,7 +217,11 @@ def _hands_above_head_for_player(xy: np.ndarray, conf: np.ndarray, *, kp_conf_th
 def extract_features_for_clip(
     *,
     video_path: Path,
-    npz_path: Path,
+    H: np.ndarray,
+    wx_min: float,
+    wx_max: float,
+    wy_min: float,
+    wy_max: float,
     target_fps: float,
     weights: str,
     imgsz: int,
@@ -256,10 +239,7 @@ def extract_features_for_clip(
         raise ValueError("target_fps must be > 0")
     if not video_path.is_file():
         raise FileNotFoundError(f"video not found: {video_path}")
-    if not npz_path.is_file():
-        raise FileNotFoundError(f"homography npz not found: {npz_path}")
 
-    H, wx_min, wx_max, wy_min, wy_max, _, _ = POSE_MOD._load_homography_npz(npz_path)
     model = YOLO(weights)
 
     cap = cv2.VideoCapture(str(video_path))
@@ -467,37 +447,38 @@ def train_and_predict(df_labeled: pd.DataFrame) -> tuple[pd.DataFrame, dict[str,
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Run simplified single-clip E2E pipeline.")
-    p.add_argument("--source-id", default="jZ18INu4LQc")
-    p.add_argument("--clip-index", type=int, default=6)
+    p = argparse.ArgumentParser(
+        description="E2E placeholder: clip MP4 + court_calibrations homography + timeline annotations → parquet + XGBoost."
+    )
     p.add_argument(
-        "--s3-uri",
+        "--clip-id",
+        type=int,
         default=None,
-        help="Override clip URI. Default is built from --source-id/--clip-index.",
+        help="Supabase clips.id (single-clip mode; mutually exclusive with --random)",
     )
-    p.add_argument("--region", default=os.environ.get("AWS_REGION", DEFAULT_REGION))
-    p.add_argument("--target-fps", type=float, default=2.0)
-    p.add_argument("--weights", default="yolov8s-pose.pt")
-    p.add_argument("--imgsz", type=int, default=1280)
-    p.add_argument("--det-conf", type=float, default=0.15)
-    p.add_argument("--ankle-conf", type=float, default=0.25)
-    p.add_argument("--kp-conf", type=float, default=0.25)
-    p.add_argument("--label-fps", type=float, default=DEFAULT_LABEL_FPS)
-    p.add_argument("--npz", type=Path, default=DEFAULT_NPZ)
     p.add_argument(
-        "--court-payloads-json",
-        type=Path,
-        default=DEFAULT_COURT_PAYLOADS,
-        help="Court keypoint payload JSON used to infer which source videos have homography support.",
+        "--random",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Process N random clips that are annotated and whose source_id has court_calibrations",
     )
+    p.add_argument("--dry-run", action="store_true", help="Print what would run; no download or parquet writes")
+    p.add_argument("--list-only", action="store_true", help="Deprecated: same as --dry-run")
+    p.add_argument("--fps", type=float, default=2.0, help="Sampling rate for feature extraction (Hz)")
     p.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
-    p.add_argument("--s3-bucket", default=DEFAULT_BUCKET)
-    p.add_argument("--s3-prefix", default=DEFAULT_S3_PREFIX)
-    p.add_argument("--num-random-clips", type=int, default=0)
-    p.add_argument("--random-seed", type=int, default=42)
-    p.add_argument("--list-only", action="store_true", help="Print selected clips and exit.")
-    p.add_argument("--stop-on-error", action="store_true", help="Stop immediately if one clip fails.")
-    p.add_argument("--skip-download", action="store_true")
+    p.add_argument("--region", default=os.environ.get("AWS_REGION", DEFAULT_REGION))
+    p.add_argument("--bucket", default=DEFAULT_BUCKET, help="S3 bucket used with --random")
+    p.add_argument("--prefix", default=DEFAULT_S3_PREFIX, help="S3 key prefix used with --random")
+    p.add_argument(
+        "--label-fps",
+        type=float,
+        default=DEFAULT_LABEL_FPS,
+        help="Label Studio timeline frame rate for Playing ranges",
+    )
+    p.add_argument("--skip-download", action="store_true", help="Use existing file under media/clips/…")
+    p.add_argument("--stop-on-error", action="store_true")
+    p.add_argument("--seed", type=int, default=42, help="RNG seed for --random")
     return p.parse_args()
 
 
@@ -520,15 +501,24 @@ def run_clip(
     elif not local_clip.is_file():
         raise RuntimeError(f"--skip-download set but clip is missing: {local_clip}")
 
+    cal = db_helpers.get_court_calibration(db_client, source_id)
+    if cal is None:
+        raise RuntimeError(f"no court_calibrations row for source_id={source_id!r}")
+    H, wx_min, wx_max, wy_min, wy_max, _, _ = homography_arrays_from_court_calibration_row(cal)
+
     df_feat = extract_features_for_clip(
         video_path=local_clip,
-        npz_path=args.npz,
-        target_fps=args.target_fps,
-        weights=args.weights,
-        imgsz=args.imgsz,
-        det_conf=args.det_conf,
-        ankle_conf=args.ankle_conf,
-        kp_conf_thresh=args.kp_conf,
+        H=H,
+        wx_min=wx_min,
+        wx_max=wx_max,
+        wy_min=wy_min,
+        wy_max=wy_max,
+        target_fps=args.fps,
+        weights=WEIGHTS_DEFAULT,
+        imgsz=IMGSZ_DEFAULT,
+        det_conf=DET_CONF_DEFAULT,
+        ankle_conf=ANKLE_CONF_DEFAULT,
+        kp_conf_thresh=KP_CONF_DEFAULT,
     )
     df_feat.insert(0, "source_id", source_id)
     df_feat.insert(1, "clip_index", int(clip_index))
@@ -574,11 +564,17 @@ def main() -> int:
     args = parse_args()
     load_dotenv(REPO_ROOT / ".env")
 
-    if args.clip_index <= 0:
-        print("--clip-index must be >= 1", file=sys.stderr)
+    if args.clip_id is not None and args.random > 0:
+        print("use either --clip-id or --random, not both", file=sys.stderr)
         return 1
-    if args.num_random_clips < 0:
-        print("--num-random-clips must be >= 0", file=sys.stderr)
+    if args.clip_id is None and args.random <= 0:
+        print("pass --clip-id <clips.id> or --random N", file=sys.stderr)
+        return 1
+    if args.random < 0:
+        print("--random must be >= 0", file=sys.stderr)
+        return 1
+    if args.fps <= 0:
+        print("--fps must be > 0", file=sys.stderr)
         return 1
 
     args.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -587,49 +583,46 @@ def main() -> int:
     db_client = db_helpers.get_supabase_client()
     annotated_clip_keys = fetch_annotated_clip_keys(db_client)
     print(f"annotated clips available in Supabase: {len(annotated_clip_keys)}")
-    homography_source_ids = load_homography_source_ids(args.court_payloads_json)
-    print(
-        "homography-supported source_ids from court payloads: "
-        f"{', '.join(sorted(homography_source_ids))}"
-    )
+    homography_source_ids = db_helpers.list_court_calibration_source_ids(db_client)
+    print(f"source_ids with court_calibrations: {', '.join(sorted(homography_source_ids))}")
     eligible_clip_keys = {k for k in annotated_clip_keys if k[0] in homography_source_ids}
-    print(f"eligible annotated clips after homography source filter: {len(eligible_clip_keys)}")
+    print(f"eligible annotated clips after court_calibrations filter: {len(eligible_clip_keys)}")
     if not eligible_clip_keys:
-        print("no eligible annotated clips after applying homography source filter", file=sys.stderr)
+        print("no eligible clips (need timeline annotation + court_calibrations for source_id)", file=sys.stderr)
         return 1
 
-    if args.num_random_clips > 0:
+    if args.random > 0:
         targets = pick_random_s3_clips(
-            bucket=args.s3_bucket,
+            bucket=args.bucket,
             region=args.region,
-            prefix=args.s3_prefix,
-            n=args.num_random_clips,
-            seed=args.random_seed,
+            prefix=args.prefix,
+            n=args.random,
+            seed=args.seed,
             allowed_clip_keys=eligible_clip_keys,
         )
     else:
-        source_id = args.source_id.strip()
-        clip_index = int(args.clip_index)
+        clip_row = db_helpers.get_clip_by_id(db_client, args.clip_id)
+        if clip_row is None:
+            print(f"no clips row for id={args.clip_id}", file=sys.stderr)
+            return 1
+        source_id = str(clip_row["source_id"])
+        clip_index = int(clip_row["clip_index"])
         if source_id not in homography_source_ids:
-            print(
-                f"requested source_id has no homography support in {args.court_payloads_json}: {source_id}",
-                file=sys.stderr,
-            )
+            print(f"no court_calibrations for source_id={source_id!r}", file=sys.stderr)
             return 1
         if (source_id, clip_index) not in eligible_clip_keys:
             print(
-                f"requested clip is not eligible (needs annotation + homography source match): "
-                f"{source_id}_{clip_index:03d}",
+                f"clip not eligible (needs timeline annotation for this clip): {source_id}_{clip_index:03d}",
                 file=sys.stderr,
             )
             return 1
-        s3_uri = args.s3_uri or _s3_uri_for_clip(args.s3_bucket, source_id, clip_index)
+        s3_uri = f"s3://{clip_row['s3_bucket']}/{clip_row['s3_key']}"
         targets = [(source_id, clip_index, s3_uri)]
 
     print(f"selected {len(targets)} clip(s)")
     for source_id, clip_index, s3_uri in targets:
         print(f"  - {source_id}_{clip_index:03d}  ({s3_uri})")
-    if args.list_only:
+    if args.dry_run or args.list_only:
         return 0
 
     results: list[dict[str, Any]] = []

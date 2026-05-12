@@ -49,45 +49,9 @@ Labels must match the planar court geometry used by the homography fitter (same 
 
 Match `meta_json.world_bounds_xy` from the calibration fitter: axis-aligned court window in **meters** used for top-down rendering (`wx_min`, `wx_max`, `wy_min`, `wy_max`). `pixels_per_metre` matches the fitter default (e.g. 45) unless changed at import.
 
-## SQL (Supabase SQL editor)
+## Executable DDL
 
-Run on the project after `source_videos` exists (`docs/schema.md`).
-
-```sql
--- Court homography: one row per source video (overwrite via upsert on source_id).
-
-create table if not exists court_calibrations (
-  source_id text primary key references source_videos(id) on delete cascade,
-
-  ref_image_s3_bucket text not null,
-  ref_image_s3_key text not null,
-  ref_image_width_px int not null check (ref_image_width_px > 0),
-  ref_image_height_px int not null check (ref_image_height_px > 0),
-  ref_clip_index int,
-
-  keypoints jsonb not null,
-  homography_matrix jsonb not null,
-  world_wx_min numeric not null,
-  world_wx_max numeric not null,
-  world_wy_min numeric not null,
-  world_wy_max numeric not null,
-  pixels_per_metre numeric not null default 45,
-
-  label_studio_task_id bigint,
-  label_studio_annotation_id bigint,
-  label_studio_project_id bigint,
-  annotator text not null,
-
-  raw_label_studio_export jsonb,
-  schema_version smallint not null default 1,
-
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists court_calibrations_updated_at_idx
-  on court_calibrations (updated_at desc);
-```
+Canonical `CREATE TABLE` for `court_calibrations` (and all other tables) lives in **[schema.md](../schema.md)** — paste or run from there so the repo stays single-source.
 
 **`updated_at`:** bump in application on each successful upsert (`updated_at = now()`), or add a `BEFORE UPDATE` trigger if you prefer it automatic.
 
@@ -95,5 +59,5 @@ create index if not exists court_calibrations_updated_at_idx
 
 - Push LS export → DB: `data_labeling/push_court_calibration.py`
 - Normalized keypoint payloads from exports: `data_labeling/court_keypoints.py` (`calibration_record_to_json`, `kind: court_keypoints_label_studio`).
-- Fit + npz layout: `cv-pipeline/calibration/court_homography.py` (`fit_calibration_record_for_db`), `_load_homography_npz` in `cv-pipeline/pose-detection/pose_side_by_side_video.py`.
+- Fit + npz layout: `cv-pipeline/calibration/court_homography.py` (`fit_calibration_record_for_db`); runtime loads from DB via `cv-pipeline/calibration/homography_io.py` (`homography_arrays_from_court_calibration_row`).
 - Supabase upsert: `src/db.py` (`upsert_court_calibration`).

@@ -1,13 +1,19 @@
 # Pose detection (experiments)
 
-This folder holds **ad-hoc experiments** around player pose and court top-down views: local scripts, one-off outputs, and manual media under `media/` and `out/` (both gitignored). Nothing here is the canonical pipeline yet.
+Ad-hoc pose and court top-down experiments; `media/` and `out/` are gitignored.
 
-Over time we expect this work to **line up with the staged CV spec** in [`cv-pipeline/cv_pipeline.md`](../cv-pipeline/cv_pipeline.md): stable cache paths (e.g. `data/<video_id>/poses.parquet`), agreed schemas, and phase boundaries instead of bespoke MP4s and PNGs.
+**Homography** comes from Supabase `court_calibrations` for the clip's `source_id` (same row as `data_labeling/push_court_calibration.py`).
 
-**Scripts (today)**
+**`pose_side_by_side_video.py`** — one command per DB clip: resolves `clips` row + `court_calibrations`, downloads the MP4 from S3 (needs `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`), runs YOLO + top-down, writes a side-by-side MP4 (H.264 via `ffmpeg` when available).
 
-- `fetch_s3_clip.py` — download a clip from S3 into `media/`.
-- `foot_topdown_experiment.py` — single-frame YOLO pose + homography top-down (skeleton / top-down images).
-- `pose_side_by_side_video.py` — sample a local clip at `--fps`, run pose + top-down per frame, write a side-by-side MP4 (H.264 via `ffmpeg` when available).
+```bash
+python cv-pipeline/pose-detection/pose_side_by_side_video.py --clip-id 42 --fps 2
+```
 
-Dependencies follow the repo’s Python env (see root `requirements.txt`; needs OpenCV, Ultralytics/Torch, and optional `ffmpeg` on PATH for editor-friendly MP4 output).
+Optional: `-o path/out.mp4`, `--panel-h`, `--weights`, `--no-h264-transcode`, etc. Defaults load `.env` from repo root (`SUPABASE_*`, `AWS_*`).
+
+**Visual QA of calibrations** (still frame | top-down, no video): [`cv-pipeline/calibration/review_court_calibrations_db.py`](../calibration/review_court_calibrations_db.py).
+
+**`fetch_s3_clip.py`** — manual S3 download into `media/` if you only need the file.
+
+See root `requirements.txt` (OpenCV, Ultralytics/Torch, boto3, supabase, dotenv; optional `ffmpeg`).

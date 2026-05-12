@@ -2,22 +2,18 @@
 
 A single-clip walkthrough of the full pipeline: pull a video, extract per-frame features, then train and evaluate a placeholder classifier against ground truth. Reuses existing helpers from elsewhere in the repo — don't reimplement S3, homography, pose, or Supabase plumbing.
 
-Reference clip for the first run:
-- `source_id = "jZ18INu4LQc"`, `clip_index = 6`
-- S3: `s3://sports-footage-autotrim-bucket/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4` (us-west-2)
-- Local cache: `cv-pipeline/pose-detection/media/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4`
-- Homography: `cv-pipeline/calibration/out/homography.npz`
+Reference: pick a **`clips.id`** from Supabase for a row that has timeline **`annotations`** and whose **`source_id`** exists in **`court_calibrations`**. The pipeline downloads using **`s3_bucket` / `s3_key`** from that clip row and loads homography from **`court_calibrations`** (same as `push_court_calibration.py`).
 
 ## 1. Per-frame feature extraction
 
 A script that, for one clip, does the following:
 
 - **Pull down the MP4.** Reuse `cv-pipeline/pose-detection/fetch_s3_clip.py` (`download_s3_object(bucket, key, dest, region)`). It loads AWS creds from the repo-root `.env` via `python-dotenv` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`). Skip the download if the destination already exists.
-- **Yield frames at a target FPS.** Open the MP4 with OpenCV (`cv2.VideoCapture`), read `CAP_PROP_FPS`, and step `frame_interval = round(src_fps / target_fps)`. Default `target_fps = 2.0` (matches `cv-pipeline/pose-detection/pose_side_by_side_video.py`). For each yielded frame, record `frame_idx` (source frame index) and `timestamp_sec = frame_idx / src_fps`.
-- **Get the homography for the clip.** For now, load `cv-pipeline/calibration/out/homography.npz` directly using the existing `_load_homography_npz` helper in `cv-pipeline/pose-detection/pose_side_by_side_video.py` (returns `H, wx_min, wx_max, wy_min, wy_max, out_w, out_h`). This is the placeholder source; later the per-clip homography will come from the DB.
+- **Yield frames at a target FPS.** Open the MP4 with OpenCV (`cv2.VideoCapture`), read `CAP_PROP_FPS`, and step `frame_interval = round(src_fps / target_fps)`. Default matches `simple_e2e_pipeline.py --fps` (2 Hz). For each yielded frame, record `frame_idx` (source frame index) and `timestamp_sec = frame_idx / src_fps`.
+- **Get the homography for the clip.** Load the `court_calibrations` row for the clip’s `source_id` and use `cv-pipeline/calibration/homography_io.homography_arrays_from_court_calibration_row` (returns `H, wx_min, wx_max, wy_min, wy_max, out_w, out_h`).
 - **Run the pose detector.** Use the same setup as `cv-pipeline/pose-detection/pose_side_by_side_video.py`: `ultralytics.YOLO("yolov8s-pose.pt")` with `imgsz=1280`, `conf=0.15`. For each frame, take `results[0].keypoints.xy` (shape `(N, 17, 2)` in pixel coords) and `results[0].keypoints.conf` (shape `(N, 17)`). COCO17 keypoint indices used here: `0` nose, `9` left wrist, `10` right wrist, `15` left ankle, `16` right ankle.
 - **Project each player to court coordinates.** For each detection, compute the foot pixel `(u, v)` from the ankles (reuse `_foot_uv_from_coco17` from `cv-pipeline/pose-detection/pose_side_by_side_video.py`, `ankle_conf=0.25`), then `wx, wy = _image_uv_to_world_m(H, u, v)` (also from that file).
-- **Drop players outside the court bounds.** Keep a detection only if `wx_min <= wx <= wx_max and wy_min <= wy <= wy_max` (from the NPZ meta). Revisit later.
+- **Drop players outside the court bounds.** Keep a detection only if `wx_min <= wx <= wx_max and wy_min <= wy <= wy_max` (world bounds from the `court_calibrations` row). Revisit later.
 - **Compute the per-frame features** (one row per yielded frame; column names and thresholds in the schema below):
     - `n_players_total`: count of in-court detections.
     - `n_camera_side` / `n_opposite_side`: split on `wy < 0` vs `wy >= 0`.

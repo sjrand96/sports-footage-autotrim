@@ -1,28 +1,21 @@
 #!/usr/bin/env python3
-"""Sample a local video at a fixed rate, run YOLO pose + homography top-down per frame, write side-by-side MP4.
+"""Side-by-side MP4: YOLO skeleton (left) + homography top-down per sampled frame (right).
 
-Left: skeleton overlay (``plot(..., boxes=False, labels=False, conf=False)``).
-Right: top-down warp + court outline + ankle-based foot circles (same as ``foot_topdown_experiment.py``).
+Resolves everything from Supabase ``clips.id`` + ``court_calibrations`` for that clip's ``source_id``:
+downloads the clip MP4 from S3 to a temp file, loads ``H`` and world bounds from the DB, then renders.
 
-Uses one fixed ``homography.npz`` for the whole clip (static camera). Homography should match
-this camera / court; if it was fit on a different clip, results are only exploratory.
+Example (repo root, ``.env`` with ``SUPABASE_*`` and ``AWS_*`` for S3):
 
-Example:
-    python cv-pipeline/pose-detection/pose_side_by_side_video.py \\
-        cv-pipeline/pose-detection/media/clips/jZ18INu4LQc/jZ18INu4LQc_006.mp4 \\
-        --npz cv-pipeline/calibration/out/homography.npz \\
-        --fps 2 \\
-        -o cv-pipeline/pose-detection/out/clip006_pose_side_by_side.mp4
+    python cv-pipeline/pose-detection/pose_side_by_side_video.py --clip-id 42 --fps 2
 
-Requires: ultralytics, torch, opencv (see requirements.txt). For MP4s that import cleanly in editors,
-``ffmpeg`` on PATH is recommended: the script writes a short-lived MPEG-4 (mp4v) file, then transcodes
-to H.264 unless you pass ``--no-h264-transcode``.
+Requires: ultralytics, torch, opencv, boto3, python-dotenv, supabase (see requirements.txt).
+``ffmpeg`` on PATH is recommended: writes a short-lived MPEG-4 (mp4v), then transcodes to H.264
+unless you pass ``--no-h264-transcode``.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -34,24 +27,17 @@ import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CALIB_DIR = _REPO_ROOT / "cv-pipeline" / "calibration"
+_POSE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_CALIB_DIR))
+sys.path.insert(0, str(_POSE_DIR))
 
 from court_homography import draw_world_rect_overlay, warp_topdown  # noqa: E402
+from fetch_s3_clip import download_s3_object  # noqa: E402
+from homography_io import homography_arrays_from_court_calibration_row  # noqa: E402
 
 _L_ANKLE = 15
 _R_ANKLE = 16
-
-
-def _load_homography_npz(path: Path) -> tuple[np.ndarray, float, float, float, float, int, int]:
-    z = np.load(path, allow_pickle=True)
-    H = np.asarray(z["H_world_to_pixel"], dtype=np.float64)
-    meta = json.loads(bytes(np.asarray(z["meta_json"]).tobytes()).decode("utf-8"))
-    wx_min, wx_max, wy_min, wy_max = meta["world_bounds_xy"]
-    ppm = float(meta.get("pixels_per_metre_requested", 45.0))
-    out_w = max(2, int(round((wx_max - wx_min) * ppm)))
-    out_h = max(2, int(round((wy_max - wy_min) * ppm)))
-    return H, wx_min, wx_max, wy_min, wy_max, out_w, out_h
 
 
 def _image_uv_to_world_m(H_world_to_px: np.ndarray, u: float, v: float) -> tuple[float, float]:
@@ -199,18 +185,20 @@ def _stack_panels(
 def main() -> int:
     try:
         import cv2
+        from dotenv import load_dotenv
         from ultralytics import YOLO
     except ImportError as e:
-        print("Need opencv + ultralytics + torch.", file=sys.stderr)
+        print("Need opencv + ultralytics + torch + python-dotenv.", file=sys.stderr)
         raise SystemExit(1) from e
 
-    p = argparse.ArgumentParser(description="Side-by-side skeleton | top-down video from local clip + homography npz.")
-    p.add_argument("video", type=Path, help="Local MP4 (e.g. under cv-pipeline/pose-detection/media/…)")
+    p = argparse.ArgumentParser(
+        description="Render side-by-side pose | top-down MP4 for one clip (Supabase clips.id + S3 + court_calibrations)."
+    )
     p.add_argument(
-        "--npz",
-        type=Path,
-        default=_CALIB_DIR / "out" / "homography.npz",
-        help="homography.npz from court_homography.py",
+        "--clip-id",
+        type=int,
+        required=True,
+        help="Primary key ``clips.id`` in Supabase",
     )
     p.add_argument(
         "--fps",
@@ -222,7 +210,8 @@ def main() -> int:
         "-o",
         "--out",
         type=Path,
-        default=_REPO_ROOT / "cv-pipeline" / "pose-detection" / "out" / "pose_side_by_side.mp4",
+        default=None,
+        help="Output MP4 (default: cv-pipeline/pose-detection/out/<clip_filename_stem>_pose_side_by_side.mp4)",
     )
     p.add_argument("--panel-h", type=int, default=720, help="Stacked panel height (both panels scaled to this)")
     p.add_argument("--gap", type=int, default=12, help="Gray strip between panels (pixels)")
@@ -235,23 +224,69 @@ def main() -> int:
         action="store_true",
         help="Keep OpenCV's MPEG-4 (mp4v) output only; skips ffmpeg re-encode if you use this flag.",
     )
+    p.add_argument(
+        "--region",
+        default=os.environ.get("AWS_REGION", "us-west-2"),
+        help="S3 region for boto3 download",
+    )
     args = p.parse_args()
 
-    if not args.video.is_file():
-        print(f"not found: {args.video}", file=sys.stderr)
-        return 1
-    if not args.npz.is_file():
-        print(f"not found: {args.npz}", file=sys.stderr)
-        return 1
     if args.fps <= 0:
         print("--fps must be > 0", file=sys.stderr)
         return 1
 
-    H, wx_min, wx_max, wy_min, wy_max, out_w, out_h = _load_homography_npz(args.npz)
+    load_dotenv(_REPO_ROOT / ".env")
 
-    cap = cv2.VideoCapture(str(args.video))
+    sup_keys = ("SUPABASE_URL", "SUPABASE_SERVICE_KEY")
+    aws_keys = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+    for key in sup_keys + aws_keys:
+        if not os.environ.get(key):
+            print(f"missing env {key}", file=sys.stderr)
+            return 1
+
+    from src import db
+
+    client = db.get_supabase_client()
+    clip = db.get_clip_by_id(client, args.clip_id)
+    if clip is None:
+        print(f"no clips row for id={args.clip_id}", file=sys.stderr)
+        return 1
+
+    source_id = str(clip["source_id"])
+    cal = db.get_court_calibration(client, source_id)
+    if cal is None:
+        print(
+            f"no court_calibrations for source_id={source_id!r} — push calibration for this source first",
+            file=sys.stderr,
+        )
+        return 1
+
+    H, wx_min, wx_max, wy_min, wy_max, out_w, out_h = homography_arrays_from_court_calibration_row(cal)
+
+    stem = Path(str(clip["filename"])).stem
+    out_path = args.out or (_POSE_DIR / "out" / f"{stem}_pose_side_by_side.mp4")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    region = os.environ.get("AWS_REGION", args.region)
+    bucket = str(clip["s3_bucket"])
+    key = str(clip["s3_key"])
+
+    fd, tmp_name = tempfile.mkstemp(suffix=".mp4", prefix=f".clip_{args.clip_id}_dl_", dir=str(out_path.parent))
+    os.close(fd)
+    tmp_video = Path(tmp_name)
+
+    print(f"clip id={args.clip_id} source_id={source_id} s3://{bucket}/{key}", flush=True)
+    try:
+        download_s3_object(bucket, key, tmp_video, region=region)
+    except (RuntimeError, SystemExit) as e:
+        print(str(e), file=sys.stderr)
+        tmp_video.unlink(missing_ok=True)
+        return 1
+
+    cap = cv2.VideoCapture(str(tmp_video))
     if not cap.isOpened():
-        print(f"could not open video: {args.video}", file=sys.stderr)
+        print(f"could not open downloaded video: {tmp_video}", file=sys.stderr)
+        tmp_video.unlink(missing_ok=True)
         return 1
 
     src_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
@@ -269,18 +304,17 @@ def main() -> int:
     frame_idx = 0
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    args.out.parent.mkdir(parents=True, exist_ok=True)
 
     ffmpeg_ok = shutil.which("ffmpeg") is not None
     use_transcode = ffmpeg_ok and not args.no_h264_transcode
     raw_path: Path | None = None
     if use_transcode:
-        raw_fd, raw_name = tempfile.mkstemp(suffix=".mp4", prefix=".pose_side_raw_", dir=str(args.out.parent))
+        raw_fd, raw_name = tempfile.mkstemp(suffix=".mp4", prefix=".pose_side_raw_", dir=str(out_path.parent))
         raw_path = Path(raw_name)
         os.close(raw_fd)
         writer_path = raw_path
     else:
-        writer_path = args.out
+        writer_path = out_path
         if not ffmpeg_ok and not args.no_h264_transcode:
             print(
                 "ffmpeg not on PATH: writing MPEG-4 (mp4v). Some editors won't import this; "
@@ -327,7 +361,7 @@ def main() -> int:
                     (w_even, h_even),
                 )
                 if not writer.isOpened():
-                    print(f"VideoWriter failed to open for {args.out}", file=sys.stderr)
+                    print(f"VideoWriter failed to open for {writer_path}", file=sys.stderr)
                     return 1
 
             writer.write(composite)
@@ -340,10 +374,11 @@ def main() -> int:
         cap.release()
         if writer is not None:
             writer.release()
+        tmp_video.unlink(missing_ok=True)
 
     if use_transcode and raw_path is not None:
         try:
-            _transcode_mp4_to_h264(raw_path, args.out)
+            _transcode_mp4_to_h264(raw_path, out_path)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             print(
                 f"H.264 transcode failed ({e!r}); intermediate file kept at: {raw_path}",
@@ -355,11 +390,11 @@ def main() -> int:
         except OSError:
             pass
         print(
-            f"wrote {out_idx} frames -> {args.out.resolve()} (H.264 via ffmpeg; editor-friendly)",
+            f"wrote {out_idx} frames -> {out_path.resolve()} (H.264 via ffmpeg; editor-friendly)",
             flush=True,
         )
     else:
-        print(f"wrote {out_idx} frames -> {args.out.resolve()}", flush=True)
+        print(f"wrote {out_idx} frames -> {out_path.resolve()}", flush=True)
     return 0
 
 
