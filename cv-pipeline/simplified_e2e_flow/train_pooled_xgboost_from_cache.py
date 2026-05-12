@@ -7,12 +7,16 @@ Reads paired files from a cache directory:
 
 Performs a clip-level split (no frame leakage), trains one pooled model, and
 reports accuracy / precision / recall / F1 and confusion matrix on test clips.
+
+Use ``--feature-subset base`` vs ``all`` (default) with the same ``--random-seed``
+and cache to compare the original seven columns against the full spatial set.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,16 +28,12 @@ from xgboost import XGBClassifier
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CACHE_DIR = _REPO_ROOT / "cv-pipeline" / "simplified_e2e_flow" / "cache"
+_E2E_FLOW_DIR = Path(__file__).resolve().parent
+if str(_E2E_FLOW_DIR) not in sys.path:
+    sys.path.insert(0, str(_E2E_FLOW_DIR))
 
-FEATURE_COLUMNS = [
-    "n_players_total",
-    "n_front_row",
-    "n_back_row",
-    "n_camera_side",
-    "n_opposite_side",
-    "median_nearest_neighbor_dist",
-    "hands_above_head_count",
-]
+from e2e_feature_columns import active_feature_columns, float_fillna_cols_for_features  # noqa: E402
+
 JOIN_COLUMNS = ["source_id", "clip_index", "frame_idx"]
 
 
@@ -71,6 +71,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional output path for XGBoost model (JSON/UBJ).",
     )
+    p.add_argument(
+        "--feature-subset",
+        choices=("all", "base"),
+        default="all",
+        help="Feature columns: 'base' = original 7 only; 'all' = base + Chunk 1 spatial (same clip split when seed matches).",
+    )
     return p.parse_args()
 
 
@@ -80,7 +86,7 @@ def _clip_stem_from_filename(name: str, suffix: str) -> str | None:
     return name[: -len(suffix)]
 
 
-def load_paired_clip_rows(cache_dir: Path) -> pd.DataFrame:
+def load_paired_clip_rows(cache_dir: Path, feature_columns: list[str]) -> pd.DataFrame:
     features_files = sorted(cache_dir.glob("*_features.parquet"))
     predictions_files = sorted(cache_dir.glob("*_predictions.parquet"))
 
@@ -110,7 +116,7 @@ def load_paired_clip_rows(cache_dir: Path) -> pd.DataFrame:
         df_feat = pd.read_parquet(feature_by_stem[stem])
         df_pred = pd.read_parquet(pred_by_stem[stem])
 
-        missing_feat = [c for c in JOIN_COLUMNS + FEATURE_COLUMNS if c not in df_feat.columns]
+        missing_feat = [c for c in JOIN_COLUMNS + feature_columns if c not in df_feat.columns]
         if missing_feat:
             raise RuntimeError(f"{feature_by_stem[stem].name} missing columns: {missing_feat}")
         if "is_playing" not in df_pred.columns:
@@ -134,6 +140,9 @@ def load_paired_clip_rows(cache_dir: Path) -> pd.DataFrame:
 
 
 def train_and_evaluate(df: pd.DataFrame, args: argparse.Namespace) -> tuple[dict[str, Any], pd.DataFrame, XGBClassifier]:
+    feat_cols: list[str] = args.feature_columns
+    fill_cols = float_fillna_cols_for_features(feat_cols)
+
     clip_keys = np.array(sorted(df["clip_key"].unique().tolist()))
     if clip_keys.size < args.min_clips:
         raise RuntimeError(f"Need at least {args.min_clips} paired clips; found {clip_keys.size}.")
@@ -149,10 +158,11 @@ def train_and_evaluate(df: pd.DataFrame, args: argparse.Namespace) -> tuple[dict
     if train_df.empty or test_df.empty:
         raise RuntimeError("Train/test split produced an empty partition; adjust --test-size or clip count.")
 
-    X_train = train_df[FEATURE_COLUMNS].copy()
-    X_test = test_df[FEATURE_COLUMNS].copy()
-    X_train["median_nearest_neighbor_dist"] = X_train["median_nearest_neighbor_dist"].fillna(-1.0)
-    X_test["median_nearest_neighbor_dist"] = X_test["median_nearest_neighbor_dist"].fillna(-1.0)
+    X_train = train_df[feat_cols].copy()
+    X_test = test_df[feat_cols].copy()
+    for _col in fill_cols:
+        X_train[_col] = X_train[_col].fillna(-1.0)
+        X_test[_col] = X_test[_col].fillna(-1.0)
     y_train = train_df["is_playing"].astype(int).to_numpy()
     y_test = test_df["is_playing"].astype(int).to_numpy()
 
@@ -182,6 +192,9 @@ def train_and_evaluate(df: pd.DataFrame, args: argparse.Namespace) -> tuple[dict
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
 
     report = {
+        "feature_subset": str(args.feature_subset),
+        "n_features": int(len(feat_cols)),
+        "feature_columns": list(feat_cols),
         "n_total_rows": int(len(df)),
         "n_train_rows": int(len(train_df)),
         "n_test_rows": int(len(test_df)),
@@ -216,10 +229,12 @@ def main() -> int:
     else:
         cache_dir = cache_dir.resolve()
 
-    df = load_paired_clip_rows(cache_dir)
+    args.feature_columns = active_feature_columns(args.feature_subset)
+    df = load_paired_clip_rows(cache_dir, args.feature_columns)
     report, test_preds, model = train_and_evaluate(df, args)
 
     print("=== Pooled XGBoost Evaluation ===")
+    print(f"feature_subset: {args.feature_subset}  ({len(args.feature_columns)} columns)")
     print(f"cache_dir: {cache_dir}")
     print(f"total rows: {report['n_total_rows']}")
     print(f"train rows / clips: {report['n_train_rows']} / {report['n_train_clips']}")

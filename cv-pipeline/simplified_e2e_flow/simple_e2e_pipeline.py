@@ -23,6 +23,9 @@ import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_E2E_FLOW_DIR = Path(__file__).resolve().parent
+if str(_E2E_FLOW_DIR) not in sys.path:
+    sys.path.insert(0, str(_E2E_FLOW_DIR))
 POSE_DIR = REPO_ROOT / "cv-pipeline" / "pose-detection"
 CALIB_DIR = REPO_ROOT / "cv-pipeline" / "calibration"
 FETCH_SCRIPT = POSE_DIR / "fetch_s3_clip.py"
@@ -37,15 +40,10 @@ IMGSZ_DEFAULT = 1280
 DET_CONF_DEFAULT = 0.15
 ANKLE_CONF_DEFAULT = 0.25
 KP_CONF_DEFAULT = 0.25
-FEATURE_COLUMNS = [
-    "n_players_total",
-    "n_front_row",
-    "n_back_row",
-    "n_camera_side",
-    "n_opposite_side",
-    "median_nearest_neighbor_dist",
-    "hands_above_head_count",
-]
+
+from e2e_feature_columns import FEATURE_COLUMNS, FEATURE_FLOAT_FILLNA_COLS  # noqa: E402
+
+from pose_feature_spatial import chunk1_spatial_dict  # noqa: E402
 
 _NOSE = 0
 _L_WRIST = 9
@@ -231,10 +229,14 @@ def compute_e2e_feature_row_from_yolo_result(
     """
     kp = result.keypoints
     world_points: list[tuple[float, float]] = []
+    camera_world: list[tuple[float, float]] = []
+    opposite_world: list[tuple[float, float]] = []
     hands_above_count = 0
+    n_pose_instances_raw = 0
 
     if kp is not None and kp.xy is not None and kp.xy.shape[0] > 0:
         xy = kp.xy.cpu().numpy()
+        n_pose_instances_raw = int(xy.shape[0])
         if kp.conf is not None:
             kconf = kp.conf.cpu().numpy()
         else:
@@ -250,6 +252,10 @@ def compute_e2e_feature_row_from_yolo_result(
                 continue
 
             world_points.append((wx, wy))
+            if wy < 0.0:
+                camera_world.append((wx, wy))
+            else:
+                opposite_world.append((wx, wy))
             if _hands_above_head_for_player(xy[i], kconf[i], kp_conf_thresh=kp_conf_thresh):
                 hands_above_count += 1
 
@@ -269,6 +275,14 @@ def compute_e2e_feature_row_from_yolo_result(
         n_back_row = 0
         median_nn = float("nan")
 
+    cam_xy = np.asarray(camera_world, dtype=np.float64).reshape(-1, 2)
+    opp_xy = np.asarray(opposite_world, dtype=np.float64).reshape(-1, 2)
+    spatial = chunk1_spatial_dict(
+        n_pose_instances_raw=n_pose_instances_raw,
+        camera_world_xy=cam_xy,
+        opposite_world_xy=opp_xy,
+    )
+
     return {
         "n_players_total": n_total,
         "n_front_row": n_front_row,
@@ -277,6 +291,7 @@ def compute_e2e_feature_row_from_yolo_result(
         "n_opposite_side": n_opposite_side,
         "median_nearest_neighbor_dist": median_nn,
         "hands_above_head_count": int(hands_above_count),
+        **spatial,
     }
 
 
@@ -448,7 +463,8 @@ def train_and_predict(df_labeled: pd.DataFrame) -> tuple[pd.DataFrame, dict[str,
     from sklearn.metrics import f1_score, precision_score, recall_score
 
     model_input = df_labeled[FEATURE_COLUMNS].copy()
-    model_input["median_nearest_neighbor_dist"] = model_input["median_nearest_neighbor_dist"].fillna(-1.0)
+    for _col in FEATURE_FLOAT_FILLNA_COLS:
+        model_input[_col] = model_input[_col].fillna(-1.0)
     X = model_input.to_numpy(dtype=np.float32)
     y = df_labeled["is_playing"].astype(int).to_numpy()
 

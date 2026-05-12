@@ -5,8 +5,9 @@ Modes
 -----
 frame-viz
     One video frame (by Supabase ``clips.id`` + source ``frame_idx``) with YOLO
-    pose overlay, homography **top-down court** (warp + FIVB overlay + foot dots,
-    same as ``pose_side_by_side_video``), and the seven E2E numeric features.
+    pose overlay, homography **top-down court** (warp + FIVB overlay + feet +
+    side **centroid crosses**), base + Chunk~1 spatial columns from
+    ``e2e_feature_columns.FEATURE_COLUMNS``.
 
 pooled-explain
     Same clip-level train/test split and ``XGBClassifier`` as
@@ -90,6 +91,11 @@ def cmd_frame_viz(args: argparse.Namespace) -> int:
     from src import db as db_helpers  # noqa: E402
 
     e2e = load_e2e_module()
+    _flow = REPO_ROOT / "cv-pipeline" / "simplified_e2e_flow"
+    if str(_flow) not in sys.path:
+        sys.path.insert(0, str(_flow))
+    from e2e_feature_columns import FEATURE_COLUMNS_BASE, FEATURE_COLUMNS_CHUNK1_SPATIAL  # noqa: E402
+
     client = db_helpers.get_supabase_client()
     clip_row = db_helpers.get_clip_by_id(client, int(args.clip_id))
     if clip_row is None:
@@ -197,6 +203,40 @@ def cmd_frame_viz(args: argparse.Namespace) -> int:
             cv2.circle(topdown, (cx, cy), 12, col, -1, lineType=cv2.LINE_AA)
             cv2.circle(topdown, (cx, cy), 13, (255, 255, 255), 1, lineType=cv2.LINE_AA)
 
+    import math
+
+    def _finite_num(x: Any) -> bool:
+        try:
+            v = float(x)
+        except (TypeError, ValueError):
+            return False
+        return v == v and math.isfinite(v)
+
+    for wx_k, wy_k, col_bgr in (
+        ("camera_side_centroid_wx_m", "camera_side_centroid_wy_m", (0, 255, 255)),
+        ("opposite_side_centroid_wx_m", "opposite_side_centroid_wy_m", (255, 128, 0)),
+    ):
+        if _finite_num(feats[wx_k]) and _finite_num(feats[wy_k]):
+            cx_c, cy_c = _world_to_canvas_px(
+                float(feats[wx_k]),
+                float(feats[wy_k]),
+                wx_min=wx_min,
+                wx_max=wx_max,
+                wy_min=wy_min,
+                wy_max=wy_max,
+                out_w=out_w,
+                out_h=out_h,
+            )
+            cv2.drawMarker(
+                topdown,
+                (cx_c, cy_c),
+                col_bgr,
+                markerType=cv2.MARKER_CROSS,
+                markerSize=22,
+                thickness=2,
+                line_type=cv2.LINE_AA,
+            )
+
     top_rgb = topdown[:, :, ::-1].copy()
 
     is_playing: str | None = None
@@ -210,7 +250,7 @@ def cmd_frame_viz(args: argparse.Namespace) -> int:
             is_playing = str(bool(m.iloc[0]["is_playing"]))
 
     fig = plt.figure(figsize=(16, 9))
-    gs = gridspec.GridSpec(2, 2, height_ratios=[2.4, 1], width_ratios=[1, 1], hspace=0.15, wspace=0.08)
+    gs = gridspec.GridSpec(2, 2, height_ratios=[2.3, 1.35], width_ratios=[1, 1], hspace=0.18, wspace=0.1)
     ax_img = fig.add_subplot(gs[0, 0])
     ax_img.imshow(rgb)
     ax_img.set_title(f"{stem}  frame_idx={int(args.frame_idx)}  (camera + pose)")
@@ -218,29 +258,46 @@ def cmd_frame_viz(args: argparse.Namespace) -> int:
 
     ax_td = fig.add_subplot(gs[0, 1])
     ax_td.imshow(top_rgb)
-    ax_td.set_title("Top-down court (homography warp + feet)")
+    ax_td.set_title("Top-down (warp + feet; cross = side centroid)")
     ax_td.axis("off")
 
-    ax_tbl = fig.add_subplot(gs[1, :])
-    ax_tbl.axis("off")
-    lines = [f"{k}:  {feats[k]}" for k in e2e.FEATURE_COLUMNS]
+    ax_tbl_base = fig.add_subplot(gs[1, 0])
+    ax_tbl_base.axis("off")
+    lines_base = [f"{k}:  {feats[k]}" for k in FEATURE_COLUMNS_BASE]
     if is_playing is not None:
-        lines.append("")
-        lines.append(f"is_playing (cached parquet):  {is_playing}")
+        lines_base.append("")
+        lines_base.append(f"is_playing (cached parquet):  {is_playing}")
     else:
-        lines.append("")
-        lines.append("(no matching row in predictions parquet for this frame_idx)")
-    ax_tbl.text(
+        lines_base.append("")
+        lines_base.append("(no cached is_playing for this frame_idx)")
+    ax_tbl_base.text(
         0.02,
         0.98,
-        "\n".join(lines),
-        transform=ax_tbl.transAxes,
+        "\n".join(lines_base),
+        transform=ax_tbl_base.transAxes,
         va="top",
         ha="left",
         family="monospace",
-        fontsize=11,
+        fontsize=9,
     )
-    fig.suptitle("E2E pooled feature columns (same as train_pooled_xgboost_from_cache)", fontsize=12)
+    ax_tbl_base.set_title("Base features", loc="left", fontsize=10)
+
+    ax_tbl_sp = fig.add_subplot(gs[1, 1])
+    ax_tbl_sp.axis("off")
+    lines_sp = [f"{k}:  {feats[k]}" for k in FEATURE_COLUMNS_CHUNK1_SPATIAL]
+    ax_tbl_sp.text(
+        0.02,
+        0.98,
+        "\n".join(lines_sp),
+        transform=ax_tbl_sp.transAxes,
+        va="top",
+        ha="left",
+        family="monospace",
+        fontsize=8,
+    )
+    ax_tbl_sp.set_title("Chunk 1 spatial (pairwise | net | centroid | MOCON)", loc="left", fontsize=10)
+
+    fig.suptitle("E2E features (registry: simplified_e2e_flow/e2e_feature_columns.py)", fontsize=12)
 
     out_path = Path(args.out).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +325,11 @@ def cmd_pooled_explain(args: argparse.Namespace) -> int:
     from sklearn.model_selection import train_test_split
 
     pool = load_pool_module()
+    _flow = REPO_ROOT / "cv-pipeline" / "simplified_e2e_flow"
+    if str(_flow) not in sys.path:
+        sys.path.insert(0, str(_flow))
+    from e2e_feature_columns import active_feature_columns, float_fillna_cols_for_features  # noqa: E402
+
     cache_dir = Path(args.cache_dir).expanduser()
     if not cache_dir.is_absolute():
         cache_dir = (Path.cwd() / cache_dir).resolve()
@@ -283,9 +345,11 @@ def cmd_pooled_explain(args: argparse.Namespace) -> int:
         subsample=float(args.subsample),
         colsample_bytree=float(args.colsample_bytree),
         min_clips=int(args.min_clips),
+        feature_subset=str(args.feature_subset),
     )
+    train_args.feature_columns = active_feature_columns(train_args.feature_subset)
 
-    df = pool.load_paired_clip_rows(cache_dir)
+    df = pool.load_paired_clip_rows(cache_dir, train_args.feature_columns)
     report, _test_preds, model = pool.train_and_evaluate(df, train_args)
 
     out_dir = Path(args.out_dir).expanduser().resolve()
@@ -300,8 +364,11 @@ def cmd_pooled_explain(args: argparse.Namespace) -> int:
         shuffle=True,
     )
     test_df = df[df["clip_key"].isin(test_keys)].copy()
-    X_test = test_df[pool.FEATURE_COLUMNS].copy()
-    X_test["median_nearest_neighbor_dist"] = X_test["median_nearest_neighbor_dist"].fillna(-1.0)
+    feat_cols = list(train_args.feature_columns)
+    fill_cols = float_fillna_cols_for_features(feat_cols)
+    X_test = test_df[feat_cols].copy()
+    for _col in fill_cols:
+        X_test[_col] = X_test[_col].fillna(-1.0)
     y_test = test_df["is_playing"].astype(int).to_numpy()
     X_np = X_test.to_numpy(dtype=np.float32)
 
@@ -323,29 +390,29 @@ def cmd_pooled_explain(args: argparse.Namespace) -> int:
         shap_vals = np.asarray(shap_raw, dtype=np.float64)
 
     mean_abs = np.abs(shap_vals).mean(axis=0)
-    shap_json = {name: float(v) for name, v in sorted(zip(pool.FEATURE_COLUMNS, mean_abs), key=lambda x: -x[1])}
+    shap_json = {name: float(v) for name, v in sorted(zip(feat_cols, mean_abs), key=lambda x: -x[1])}
     (out_dir / "shap_mean_abs.json").write_text(json.dumps(shap_json, indent=2), encoding="utf-8")
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 8))
     shap.summary_plot(
         shap_vals,
         X_sub_df,
-        feature_names=pool.FEATURE_COLUMNS,
+        feature_names=feat_cols,
         plot_type="bar",
         show=False,
-        max_display=len(pool.FEATURE_COLUMNS) + 2,
+        max_display=len(feat_cols) + 2,
     )
     plt.tight_layout()
     plt.savefig(out_dir / "shap_bar.png", dpi=150, bbox_inches="tight")
     plt.close()
 
-    plt.figure(figsize=(10, 7))
+    plt.figure(figsize=(12, 9))
     shap.summary_plot(
         shap_vals,
         X_sub_df,
-        feature_names=pool.FEATURE_COLUMNS,
+        feature_names=feat_cols,
         show=False,
-        max_display=len(pool.FEATURE_COLUMNS) + 2,
+        max_display=len(feat_cols) + 2,
     )
     plt.tight_layout()
     plt.savefig(out_dir / "shap_beeswarm.png", dpi=150, bbox_inches="tight")
@@ -361,12 +428,13 @@ def cmd_pooled_explain(args: argparse.Namespace) -> int:
     )
     perm_dict = {
         name: {"mean": float(m), "std": float(s)}
-        for name, m, s in zip(pool.FEATURE_COLUMNS, perm.importances_mean, perm.importances_std)
+        for name, m, s in zip(feat_cols, perm.importances_mean, perm.importances_std)
     }
     perm_sorted = dict(sorted(perm_dict.items(), key=lambda kv: -kv[1]["mean"]))
     (out_dir / "permutation_importance_accuracy.json").write_text(json.dumps(perm_sorted, indent=2), encoding="utf-8")
 
     print("=== pooled-explain ===")
+    print(f"feature_subset: {train_args.feature_subset}  ({len(feat_cols)} columns)")
     print(f"cache_dir: {cache_dir}")
     print(f"out_dir:   {out_dir}")
     print(f"SHAP rows: {X_sub.shape[0]} (of {X_np.shape[0]} test rows)")
@@ -374,10 +442,10 @@ def cmd_pooled_explain(args: argparse.Namespace) -> int:
     for k, v in report["metrics"].items():
         print(f"  {k}: {v:.4f}")
     print("mean |SHAP| (higher = more influence on this sample set):")
-    for name in pool.FEATURE_COLUMNS:
+    for name in feat_cols:
         print(f"  {name}: {shap_json[name]:.6f}")
     print("permutation Δ accuracy (mean over repeats; higher = feature used by model):")
-    for name in pool.FEATURE_COLUMNS:
+    for name in feat_cols:
         print(f"  {name}: {perm_dict[name]['mean']:.6f} ± {perm_dict[name]['std']:.6f}")
     return 0
 
@@ -420,6 +488,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_pool.add_argument("--min-clips", type=int, default=2)
     p_pool.add_argument("--shap-max-samples", type=int, default=4000, help="Cap test rows for SHAP plots (0 = all).")
     p_pool.add_argument("--permutation-repeats", type=int, default=8)
+    p_pool.add_argument(
+        "--feature-subset",
+        choices=("all", "base"),
+        default="all",
+        help="Match train_pooled_xgboost_from_cache: 'base' = 7 legacy columns only for SHAP/train.",
+    )
     return p
 
 
