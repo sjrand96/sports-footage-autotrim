@@ -1,0 +1,12 @@
+{
+  "split_field": "source_id",
+  "split_ratios": [0.7, 0.15, 0.15],
+  "seed": 13,
+  "batch_size": 32,
+  "num_frames": 16,
+  "epochs": 20,
+  "lr": 0.0003,
+  "weight_decay": 0.0001,
+  "num_workers": 4,
+  "use_raw_frames": false
+}
