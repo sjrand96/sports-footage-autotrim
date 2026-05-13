@@ -124,7 +124,33 @@ python cv-pipeline/pose-based-feature-extraction/feature_lab.py pooled-explain \
 
 ---
 
-## 6. Related docs
+## 6. Team snapshot — how predictive is it today?
+
+**Setup (recent internal pooled run):** about **fifty** short clips, **~5.8k** labeled rows total (features joined to timeline labels at **2 Hz**). Train / test is by **whole clip**: **40 clips** train, **10 clips** held out—so metrics are “held-out clips from this pool,” not a large benchmark suite.
+
+**Numbers:** with the **full** feature set (counts + Chunk 1 spatial), test **accuracy ~77%** and **F1 ~0.76** (precision and recall both mid‑0.7s). With only the **original seven** columns on the **same** split, **~69%** accuracy and **F1 ~0.69**—so the extra geometry helps meaningfully.
+
+**Label imbalance (frame-level, same run):** “Not playing” is more common than “playing” on **train** and over the **full** joined set, but the **held-out test** fold is less skewed because different clips land in each split.
+
+| Slice | Rows (approx.) | Not playing | Playing |
+|--------|----------------|-------------|---------|
+| Train | 4.7k | 67% (≈3.2k rows) | 33% (≈1.6k rows) |
+| All joined | 5.8k | 65% (≈3.8k rows) | 35% (≈2.1k rows) |
+| Test (10 clips) | 1.1k | 53% (≈0.6k rows) | 47% (≈0.5k rows) |
+
+Overall the pool is on the order of **two “not playing” frames per one “playing” frame**; the test slice alone is closer to **even**. XGBoost’s `scale_pos_weight` (about 2) is set from **train** imbalance so positives are not ignored.
+
+**Baselines vs reported test accuracy (about 77%):**
+
+- **About 50%** — random class each frame (no signal).
+- **Always “not playing”** — if you score on **test**, accuracy equals the fraction of test rows that are “not playing”: about **53%** on this run. If you scored the same rule on **train**, it would be about **67%**; on **all** joined rows, about **65%**. The lazy baseline tied to the **reported** test metric is about **53%**; the **corpus-wide** skew is the higher **65–67%** “always negative” accuracy on train/all slices.
+- **About 77%** — full model on test (above random and above the **test-slice** 53% majority baseline).
+
+**Caveats:** only **10 test clips**; split is by **clip** not by **match**, so the same YouTube source can contribute to train and test. Treat this as **strong signal on this corpus**, not a final number for new venues or new camera setups.
+
+---
+
+## 7. Related docs
 
 | Topic | Location |
 |--------|----------|
