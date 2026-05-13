@@ -106,13 +106,33 @@ python cv-pipeline/pose-based-feature-extraction/feature_lab.py pooled-explain \
   --out-dir cv-pipeline/pose-based-feature-extraction/outputs/my_run
 ```
 
+### `clip_pred_timeline.py`
+
+Whole-clip **PNG** (not video): two stacked step plots, **actual** `is_playing` vs **cached** `pred_playing` from `{stem}_predictions.parquet` (same file E2E writes after `simple_e2e_pipeline.py`). Light red vertical tint at mismatched sample times. Optional `--predictions-parquet` if you want a different file (e.g. filtered export).
+
+```bash
+python cv-pipeline/pose-based-feature-extraction/clip_pred_timeline.py \
+  --clip-id 69 \
+  --out cv-pipeline/pose-based-feature-extraction/outputs/clip69_timeline.png
+```
+
+Default `pred_playing` is **in-sample** from E2E (fit on the same clip rows), so the two tracks often match almost perfectly. For pooled predictions vs labels, pass a model saved from `train_pooled_xgboost_from_cache.py --save-model` and matching `--feature-subset`:
+
+```bash
+python cv-pipeline/pose-based-feature-extraction/clip_pred_timeline.py \
+  --clip-id 69 \
+  --pooled-model path/to/pooled.json \
+  --feature-subset all \
+  --out cv-pipeline/pose-based-feature-extraction/outputs/clip69_pooled_timeline.png
+```
+
 ---
 
 ## 4. Typical “study” loop
 
 1. **Refresh or grow the cache** — run E2E on the clips you care about, fixed `--fps`, so row semantics stay consistent.
 2. **Pooled train / compare** — `train_pooled_xgboost_from_cache.py` with the same `--cache-dir` and `--random-seed`, toggling `--feature-subset base` vs `all`.
-3. **Explain / debug** — `feature_lab pooled-explain` with matching flags; **`frame-viz`** on specific frames when geometry or labels look wrong.
+3. **Explain / debug** — `feature_lab pooled-explain` with matching flags; **`frame-viz`** on specific frames; **`clip_pred_timeline.py`** for a full-clip label vs prediction strip.
 
 ---
 
