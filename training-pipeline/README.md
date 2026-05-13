@@ -15,19 +15,39 @@ This project builds a PyTorch training pipeline for volleyball playtime vs downt
 
 The training and evaluation scripts can log runs, tables, media, and confusion matrices to W&B. To use it:
 
-1. Install the SDK in your active Python environment:
+1. Create or sign into your W&B account, then copy your API key from W&B account settings.
+
+2. Install the SDK in your active Python environment:
 
 ```bash
 python -m pip install wandb
 ```
 
-2. Authenticate once on your machine:
+3. Authenticate once on your machine. This stores your API key locally:
 
 ```bash
 wandb login
 ```
 
-3. Run training or evaluation with the default W&B project, or set your own project and run name:
+If you prefer non-interactive setup, you can also export the key first and then login:
+
+```bash
+export WANDB_API_KEY=your_key_here
+wandb login
+```
+
+4. Use your team as the W&B entity when logging runs. For this repo, the team is `cs348k-sports-footage-autotrim`.
+
+For the sample smoke test, pass the entity explicitly:
+
+```bash
+python src/training/sample_wandb_train.py \
+  --entity cs348k-sports-footage-autotrim \
+  --project volleyball-playtime-sample \
+  --run-name sample-data-transformer-smoke-test
+```
+
+5. Run training or evaluation with the default W&B project, or set your own project and run name:
 
 ```bash
 python src/training/train.py --wandb-project volleyball-playtime --wandb-run my-experiment
@@ -51,6 +71,7 @@ Run a tiny training job from the repository sample export in `../data`. It parse
 
 ```bash
 python src/training/sample_wandb_train.py \
+  --entity cs348k-sports-footage-autotrim \
   --project volleyball-playtime-sample \
   --run-name sample-data-transformer-smoke-test
 ```
