@@ -36,6 +36,12 @@ def list_clip_ids(csv_path: Path = DEFAULT_FRAME_LABELS_CSV) -> list[str]:
     return sorted(df["clip_id"].astype(str).unique())
 
 
+def clip_to_source_map(csv_path: Path = DEFAULT_FRAME_LABELS_CSV) -> dict[str, str]:
+    df = pd.read_csv(csv_path, usecols=["clip_id", "source_id"])
+    rows = df.drop_duplicates(subset=["clip_id"])
+    return {str(r.clip_id): str(r.source_id) for r in rows.itertuples(index=False)}
+
+
 def load_clip_features(
     clip_id: str,
     *,

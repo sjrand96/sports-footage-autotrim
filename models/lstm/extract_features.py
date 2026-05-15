@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,14 @@ CLIPS_ROOT = REPO_ROOT / "data" / "clips"
 FRAME_LABELS_CSV = REPO_ROOT / "data" / "preprocessed_labels" / "frame_labels.csv"
 FEATURES_ROOT = REPO_ROOT / "data" / "preprocessed_features"
 DEFAULT_BATCH_SIZE = 32
+_CLIP_STEM_RE = re.compile(r"^(?P<source_id>.+)_(?P<clip_index>\d+)$")
+
+
+def parse_source_id(clip_id: str) -> str:
+    m = _CLIP_STEM_RE.match(clip_id)
+    if not m:
+        raise ValueError(f"could not parse clip_id: {clip_id!r}")
+    return m.group("source_id")
 
 
 def clip_mp4_path(source_id: str, clip_id: str) -> Path:
@@ -172,6 +181,64 @@ def extract_one(
         "video_path": str(mp4.relative_to(REPO_ROOT)),
         "cache_path": str(out_pt.relative_to(REPO_ROOT)),
     }
+
+
+def cache_is_valid(
+    clip_id: str,
+    *,
+    backbone: str,
+    expected_img_size: int,
+    mp4: Path | None = None,
+) -> bool:
+    out_pt = cache_path(backbone, clip_id)
+    if not out_pt.is_file():
+        return False
+    data = torch.load(out_pt, map_location="cpu", weights_only=False)
+    if data.get("backbone") != backbone:
+        return False
+    if int(data.get("img_size", 0)) != expected_img_size:
+        return False
+    if mp4 is None:
+        mp4 = clip_mp4_path(parse_source_id(clip_id), clip_id)
+    if mp4.is_file() and needs_extract(mp4, out_pt, force=False):
+        return False
+    return True
+
+
+def ensure_features_for_clips(
+    clip_ids: list[str],
+    *,
+    backbone: str,
+    clip_to_source: dict[str, str] | None = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    force: bool = False,
+    device: str | None = None,
+    show_frames: bool = False,
+) -> None:
+    """Extract CNN features for any clip missing a valid cache."""
+    enc = get_encoder(backbone, device=resolve_device(device))
+    sources = clip_to_source or {}
+    for clip_id in clip_ids:
+        source_id = sources.get(clip_id) or parse_source_id(clip_id)
+        mp4 = clip_mp4_path(source_id, clip_id)
+        if not force and cache_is_valid(
+            clip_id,
+            backbone=backbone,
+            expected_img_size=enc.img_size,
+            mp4=mp4,
+        ):
+            continue
+        if not mp4.is_file():
+            raise FileNotFoundError(f"missing video for {clip_id}: {mp4}")
+        print(f"  extracting features: {clip_id}")
+        extract_one(
+            enc,
+            clip_id=clip_id,
+            source_id=source_id,
+            batch_size=batch_size,
+            force=True,
+            show_frames=show_frames,
+        )
 
 
 def write_meta(backbone: str, encoder, clips_meta: list[dict], *, device: str) -> None:
