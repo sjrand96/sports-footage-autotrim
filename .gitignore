@@ -1,5 +1,6 @@
 data/clips/
 data/labels/
+data/preprocessed_labels/
 data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
