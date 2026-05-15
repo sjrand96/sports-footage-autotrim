@@ -1,3 +1,5 @@
+data/clips/
+data/labels/
 data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
