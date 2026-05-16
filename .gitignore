@@ -1,3 +1,9 @@
+data/clips/
+data/labels/
+data/preprocessed_labels/
+data/preprocessed_features/
+data/sample_predictions/
+models/lstm/checkpoints/
 data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
