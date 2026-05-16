@@ -219,6 +219,14 @@ About pre-signed URLs: even though the bucket is publicly readable, we leave thi
 - Click **Load Preview** — should list the `.mp4` files for that source (or "No files found" if ingest has not been run for that id yet)
 - Click **Next**
 
+Before annotating, open one synced task and confirm its raw data has a `video` value that points at S3, for example:
+
+```json
+{"video": "s3://sports-footage-autotrim-bucket/clips/jZ18INu4LQc/jZ18INu4LQc_001.mp4"}
+```
+
+or an equivalent `https://sports-footage-autotrim-bucket.s3.us-west-2.amazonaws.com/clips/...mp4` URL. Do **not** use **Data Import** / local upload for clip labeling. Exports with paths like `/data/upload/...mp4` are local to your Label Studio instance; `push_annotations.py`, training import, and dashboard frame extraction cannot resolve those back to the shared S3 clips or Supabase `clips` rows.
+
 ### 3c. Step 3 — Review & Confirm
 
 - Confirm the settings look right

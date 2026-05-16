@@ -2,6 +2,7 @@ data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
 cv-pipeline/simplified_e2e_flow/cache/
+cv-pipeline/pose-based-feature-extraction/outputs/
 .DS_Store
 yolov8s-pose.pt
 
@@ -231,3 +232,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+training-pipeline/src/training/wandb/*
+training-pipeline/wandb/*
+data/s3_sample/*
+*.parquet
+*.mp4
+/training-pipeline/data/s3_cache

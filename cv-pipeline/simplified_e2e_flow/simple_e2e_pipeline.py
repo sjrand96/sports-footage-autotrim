@@ -23,6 +23,9 @@ import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_E2E_FLOW_DIR = Path(__file__).resolve().parent
+if str(_E2E_FLOW_DIR) not in sys.path:
+    sys.path.insert(0, str(_E2E_FLOW_DIR))
 POSE_DIR = REPO_ROOT / "cv-pipeline" / "pose-detection"
 CALIB_DIR = REPO_ROOT / "cv-pipeline" / "calibration"
 FETCH_SCRIPT = POSE_DIR / "fetch_s3_clip.py"
@@ -37,15 +40,10 @@ IMGSZ_DEFAULT = 1280
 DET_CONF_DEFAULT = 0.15
 ANKLE_CONF_DEFAULT = 0.25
 KP_CONF_DEFAULT = 0.25
-FEATURE_COLUMNS = [
-    "n_players_total",
-    "n_front_row",
-    "n_back_row",
-    "n_camera_side",
-    "n_opposite_side",
-    "median_nearest_neighbor_dist",
-    "hands_above_head_count",
-]
+
+from e2e_feature_columns import FEATURE_COLUMNS, FEATURE_FLOAT_FILLNA_COLS  # noqa: E402
+
+from pose_feature_spatial import chunk1_spatial_dict  # noqa: E402
 
 _NOSE = 0
 _L_WRIST = 9
@@ -214,6 +212,89 @@ def _hands_above_head_for_player(xy: np.ndarray, conf: np.ndarray, *, kp_conf_th
     return min(wrist_ys) < nose_y
 
 
+def compute_e2e_feature_row_from_yolo_result(
+    result: Any,
+    *,
+    H: np.ndarray,
+    wx_min: float,
+    wx_max: float,
+    wy_min: float,
+    wy_max: float,
+    ankle_conf: float,
+    kp_conf_thresh: float,
+) -> dict[str, Any]:
+    """Numeric feature dict for one frame; keys match ``FEATURE_COLUMNS`` (no ``frame_idx`` / ``timestamp_sec``).
+
+    Used by ``extract_features_for_clip`` and by ``pose-based-feature-extraction/feature_lab.py`` for viz.
+    """
+    kp = result.keypoints
+    world_points: list[tuple[float, float]] = []
+    camera_world: list[tuple[float, float]] = []
+    opposite_world: list[tuple[float, float]] = []
+    hands_above_count = 0
+    n_pose_instances_raw = 0
+
+    if kp is not None and kp.xy is not None and kp.xy.shape[0] > 0:
+        xy = kp.xy.cpu().numpy()
+        n_pose_instances_raw = int(xy.shape[0])
+        if kp.conf is not None:
+            kconf = kp.conf.cpu().numpy()
+        else:
+            kconf = np.ones((xy.shape[0], xy.shape[1]), dtype=np.float32)
+
+        for i in range(xy.shape[0]):
+            foot_uv = POSE_MOD._foot_uv_from_coco17(xy[i], kconf[i], ankle_conf=ankle_conf)
+            if foot_uv is None:
+                continue
+
+            wx, wy = POSE_MOD._image_uv_to_world_m(H, float(foot_uv[0]), float(foot_uv[1]))
+            if not (wx_min <= wx <= wx_max and wy_min <= wy <= wy_max):
+                continue
+
+            world_points.append((wx, wy))
+            if wy < 0.0:
+                camera_world.append((wx, wy))
+            else:
+                opposite_world.append((wx, wy))
+            if _hands_above_head_for_player(xy[i], kconf[i], kp_conf_thresh=kp_conf_thresh):
+                hands_above_count += 1
+
+    world = np.asarray(world_points, dtype=np.float64)
+    n_total = int(world.shape[0])
+    if n_total > 0:
+        wy_axis = world[:, 1]
+        n_camera_side = int(np.sum(wy_axis < 0.0))
+        n_opposite_side = int(np.sum(wy_axis >= 0.0))
+        n_front_row = int(np.sum(np.abs(wy_axis) < 3.0))
+        n_back_row = int(np.sum(np.abs(wy_axis) >= 3.0))
+        median_nn = _median_nearest_neighbor_distance(world)
+    else:
+        n_camera_side = 0
+        n_opposite_side = 0
+        n_front_row = 0
+        n_back_row = 0
+        median_nn = float("nan")
+
+    cam_xy = np.asarray(camera_world, dtype=np.float64).reshape(-1, 2)
+    opp_xy = np.asarray(opposite_world, dtype=np.float64).reshape(-1, 2)
+    spatial = chunk1_spatial_dict(
+        n_pose_instances_raw=n_pose_instances_raw,
+        camera_world_xy=cam_xy,
+        opposite_world_xy=opp_xy,
+    )
+
+    return {
+        "n_players_total": n_total,
+        "n_front_row": n_front_row,
+        "n_back_row": n_back_row,
+        "n_camera_side": n_camera_side,
+        "n_opposite_side": n_opposite_side,
+        "median_nearest_neighbor_dist": median_nn,
+        "hands_above_head_count": int(hands_above_count),
+        **spatial,
+    }
+
+
 def extract_features_for_clip(
     *,
     video_path: Path,
@@ -270,57 +351,22 @@ def extract_features_for_clip(
                 continue
 
             result = model(frame_bgr, imgsz=imgsz, conf=det_conf, verbose=False)[0]
-            kp = result.keypoints
-            world_points: list[tuple[float, float]] = []
-            hands_above_count = 0
-
-            if kp is not None and kp.xy is not None and kp.xy.shape[0] > 0:
-                xy = kp.xy.cpu().numpy()
-                if kp.conf is not None:
-                    kconf = kp.conf.cpu().numpy()
-                else:
-                    kconf = np.ones((xy.shape[0], xy.shape[1]), dtype=np.float32)
-
-                for i in range(xy.shape[0]):
-                    foot_uv = POSE_MOD._foot_uv_from_coco17(xy[i], kconf[i], ankle_conf=ankle_conf)
-                    if foot_uv is None:
-                        continue
-
-                    wx, wy = POSE_MOD._image_uv_to_world_m(H, float(foot_uv[0]), float(foot_uv[1]))
-                    if not (wx_min <= wx <= wx_max and wy_min <= wy <= wy_max):
-                        continue
-
-                    world_points.append((wx, wy))
-                    if _hands_above_head_for_player(xy[i], kconf[i], kp_conf_thresh=kp_conf_thresh):
-                        hands_above_count += 1
-
-            world = np.asarray(world_points, dtype=np.float64)
-            n_total = int(world.shape[0])
-            if n_total > 0:
-                wy = world[:, 1]
-                n_camera_side = int(np.sum(wy < 0.0))
-                n_opposite_side = int(np.sum(wy >= 0.0))
-                n_front_row = int(np.sum(np.abs(wy) < 3.0))
-                n_back_row = int(np.sum(np.abs(wy) >= 3.0))
-                median_nn = _median_nearest_neighbor_distance(world)
-            else:
-                n_camera_side = 0
-                n_opposite_side = 0
-                n_front_row = 0
-                n_back_row = 0
-                median_nn = float("nan")
+            feats = compute_e2e_feature_row_from_yolo_result(
+                result,
+                H=H,
+                wx_min=wx_min,
+                wx_max=wx_max,
+                wy_min=wy_min,
+                wy_max=wy_max,
+                ankle_conf=ankle_conf,
+                kp_conf_thresh=kp_conf_thresh,
+            )
 
             rows.append(
                 {
                     "frame_idx": int(frame_idx),
                     "timestamp_sec": float(frame_idx / src_fps),
-                    "n_players_total": n_total,
-                    "n_front_row": n_front_row,
-                    "n_back_row": n_back_row,
-                    "n_camera_side": n_camera_side,
-                    "n_opposite_side": n_opposite_side,
-                    "median_nearest_neighbor_dist": median_nn,
-                    "hands_above_head_count": int(hands_above_count),
+                    **feats,
                 }
             )
             sampled += 1
@@ -417,7 +463,8 @@ def train_and_predict(df_labeled: pd.DataFrame) -> tuple[pd.DataFrame, dict[str,
     from sklearn.metrics import f1_score, precision_score, recall_score
 
     model_input = df_labeled[FEATURE_COLUMNS].copy()
-    model_input["median_nearest_neighbor_dist"] = model_input["median_nearest_neighbor_dist"].fillna(-1.0)
+    for _col in FEATURE_FLOAT_FILLNA_COLS:
+        model_input[_col] = model_input[_col].fillna(-1.0)
     X = model_input.to_numpy(dtype=np.float32)
     y = df_labeled["is_playing"].astype(int).to_numpy()
 
