@@ -236,3 +236,6 @@ __marimo__/
 training-pipeline/src/training/wandb/*
 training-pipeline/wandb/*
 data/s3_sample/*
+*.parquet
+*.mp4
+/training-pipeline/data/s3_cache

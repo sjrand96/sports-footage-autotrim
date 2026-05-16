@@ -8,5 +8,8 @@
   "lr": 0.0003,
   "weight_decay": 0.0001,
   "num_workers": 4,
-  "use_raw_frames": false
+  "use_raw_frames": false,
+  "fusion": "none",
+  "e2e_feature_subset": "all",
+  "clip_duration_sec": 60.0
 }
