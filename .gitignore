@@ -1,9 +1,20 @@
-.DS_Store
-node_modules/
-dist/
-
+data/clips/
+data/labels/
+data/preprocessed_labels/
+data/preprocessed_features/
+models/lstm/checkpoints/
 data/*.mp4
+video-editor/node_modules/
+video-editor/.vite/deps/
+cv-pipeline/simplified_e2e_flow/cache/
+.DS_Store
+yolov8s-pose.pt
 
+# CV calibration outputs (npz, previews)
+cv-pipeline/calibration/out/
+
+cv-pipeline/pose-detection/out/
+cv-pipeline/pose-detection/media/
 # Ignore PyTorch model files for version control
 notebooks/*.pt
 

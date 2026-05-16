@@ -331,6 +331,13 @@
   color: rgba(109, 220, 150, 0.92);
 }
 
+.labels-import-error {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #f28b82;
+  line-height: 1.4;
+}
+
 .hint {
   margin: 0.25rem 0 0;
   font-size: 0.8rem;

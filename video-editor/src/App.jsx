@@ -5,10 +5,8 @@ import {
   snapTimeForSelectedPlayStart,
   sortIntervals,
 } from './selectedIntervalPlayback.js'
-import {
-  parseLabelStudioTasksJson,
-  playingIntervalsSecondsForExport,
-} from './labelStudioImport.js'
+import { playingIntervalsSecondsFromFramePredictionsCsv } from './framePredictionsImport.js'
+import { playingIntervalsSecondsFromLabelJson } from './labelStudioImport.js'
 import './App.css'
 
 const MIN_INTERVAL_SEC = 0.05
@@ -28,6 +26,7 @@ export default function App() {
   const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
   const [groundTruthLabelsImportName, setGroundTruthLabelsImportName] =
     useState('')
+  const [labelsImportError, setLabelsImportError] = useState('')
 
   // clean up the old URL when the source URL changes
   const revokeUrl = useCallback((url) => {
@@ -65,6 +64,7 @@ export default function App() {
     setGroundTruthIntervals([])
     setPredictLabelsImportName('')
     setGroundTruthLabelsImportName('')
+    setLabelsImportError('')
   }
 
   const onPickPredictedLabels = useCallback(
@@ -78,27 +78,27 @@ export default function App() {
       }
       const reader = new FileReader()
       reader.onload = () => {
-        try {
-          const tasks = parseLabelStudioTasksJson(reader.result)
-          const { intervals: imported, error } = playingIntervalsSecondsForExport(
-            tasks,
-            fileLabel,
-            duration,
-          )
-          if (error) {
-            setPredictLabelsImportName('')
-            return
-          }
-          const withIds = imported.map((iv) => ({
-            id: nextIntervalId(),
-            start: iv.start,
-            end: iv.end,
-          }))
-          setIntervals(withIds)
-          setPredictLabelsImportName(file.name)
-        } catch {
+        const isCsv = /\.csv$/i.test(file.name)
+        const { intervals: imported, error } = isCsv
+          ? playingIntervalsSecondsFromFramePredictionsCsv(
+              reader.result,
+              fileLabel,
+              duration,
+            )
+          : playingIntervalsSecondsFromLabelJson(reader.result, fileLabel, duration)
+        if (error) {
           setPredictLabelsImportName('')
+          setLabelsImportError(error)
+          return
         }
+        const withIds = imported.map((iv) => ({
+          id: nextIntervalId(),
+          start: iv.start,
+          end: iv.end,
+        }))
+        setIntervals(withIds)
+        setPredictLabelsImportName(file.name)
+        setLabelsImportError('')
       }
       reader.onerror = () => setPredictLabelsImportName('')
       reader.readAsText(file)
@@ -117,27 +117,24 @@ export default function App() {
       }
       const reader = new FileReader()
       reader.onload = () => {
-        try {
-          const tasks = parseLabelStudioTasksJson(reader.result)
-          const { intervals: imported, error } = playingIntervalsSecondsForExport(
-            tasks,
-            fileLabel,
-            duration,
-          )
-          if (error) {
-            setGroundTruthLabelsImportName('')
-            return
-          }
-          const withIds = imported.map((iv) => ({
-            id: nextGroundTruthIntervalId(),
-            start: iv.start,
-            end: iv.end,
-          }))
-          setGroundTruthIntervals(withIds)
-          setGroundTruthLabelsImportName(file.name)
-        } catch {
+        const { intervals: imported, error } = playingIntervalsSecondsFromLabelJson(
+          reader.result,
+          fileLabel,
+          duration,
+        )
+        if (error) {
           setGroundTruthLabelsImportName('')
+          setLabelsImportError(error)
+          return
         }
+        const withIds = imported.map((iv) => ({
+          id: nextGroundTruthIntervalId(),
+          start: iv.start,
+          end: iv.end,
+        }))
+        setGroundTruthIntervals(withIds)
+        setGroundTruthLabelsImportName(file.name)
+        setLabelsImportError('')
       }
       reader.onerror = () => setGroundTruthLabelsImportName('')
       reader.readAsText(file)
@@ -270,7 +267,7 @@ export default function App() {
                     Import predicted labels
                     <input
                       type="file"
-                      accept="application/json,.json"
+                      accept="application/json,.json,text/csv,.csv"
                       onChange={onPickPredictedLabels}
                       disabled={!duration}
                       hidden
@@ -308,6 +305,12 @@ export default function App() {
                   ) : null}
                 </div>
               </div>
+
+              {labelsImportError ? (
+                <p className="labels-import-error" role="alert">
+                  {labelsImportError}
+                </p>
+              ) : null}
 
               <div className="playback-block">
                 <PlaybackTimeline

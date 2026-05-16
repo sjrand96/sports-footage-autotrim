@@ -85,7 +85,7 @@ function sortByStart(a, b) {
   return a.start - b.start || a.end - b.end
 }
 
-function mergeAdjacentOrOverlapping(intervals) {
+export function mergeAdjacentOrOverlapping(intervals) {
   const sorted = [...intervals].sort(sortByStart)
   const out = []
   for (const iv of sorted) {
@@ -96,7 +96,7 @@ function mergeAdjacentOrOverlapping(intervals) {
   return out
 }
 
-function clampToDuration(intervals, durationSec) {
+export function clampToDuration(intervals, durationSec) {
   const d = durationSec
   const out = []
   for (const iv of intervals) {
@@ -109,12 +109,41 @@ function clampToDuration(intervals, durationSec) {
   return out
 }
 
+/**
+ * Normalize Label Studio tasks from multiple export shapes:
+ * - Bulk LS export: `[{ data: { video }, annotations, ... }, ...]`
+ * - Per-clip DB / repo label file: `{ payload: { label_studio_task }, source_id, clip_index }`
+ * - Single task object at root
+ */
+export function normalizeLabelStudioTasks(data) {
+  if (Array.isArray(data)) return data
+
+  if (data && typeof data === 'object') {
+    const fromPayload = data.payload?.label_studio_task ?? data.label_studio_task
+    if (fromPayload && typeof fromPayload === 'object') return [fromPayload]
+
+    if (data.data?.video ?? data.video) return [data]
+  }
+
+  throw new Error(
+    'Unrecognized label JSON. Use a Label Studio export array or a per-clip label file from data/labels/.',
+  )
+}
+
 export function parseLabelStudioTasksJson(raw) {
   const data = typeof raw === 'string' ? JSON.parse(raw) : raw
-  if (!Array.isArray(data)) {
-    throw new Error('Expected a JSON array of Label Studio tasks')
+  return normalizeLabelStudioTasks(data)
+}
+
+/** `{source_id}_{NNN}.mp4` from a per-clip label wrapper, if present. */
+export function clipBasenameFromLabelRecord(record) {
+  if (!record || typeof record !== 'object') return null
+  const sourceId = record.source_id
+  const clipIndex = Number(record.clip_index)
+  if (typeof sourceId === 'string' && Number.isFinite(clipIndex) && clipIndex > 0) {
+    return `${sourceId}_${String(clipIndex).padStart(3, '0')}.mp4`
   }
-  return data
+  return null
 }
 
 /**
@@ -125,6 +154,7 @@ export function playingIntervalsSecondsForExport(
   fileLabel,
   durationSec,
   fps = LABEL_STUDIO_FPS,
+  { labelRecord = null } = {},
 ) {
   const basename = localFileBasename(fileLabel)?.toLowerCase()
   if (!basename) return { error: 'Open a video file first.' }
@@ -132,11 +162,22 @@ export function playingIntervalsSecondsForExport(
     return { error: 'Wait for the video to finish loading.' }
   if (!Array.isArray(tasks)) return { error: 'Invalid export format (not an array).' }
 
-  const task = tasks.find((t) => {
-    const v = t?.data?.video ?? t?.video
-    const b = clipBasenameFromLsVideoField(v)
-    return b && b.toLowerCase() === basename
-  })
+  const recordBasename = clipBasenameFromLabelRecord(labelRecord)?.toLowerCase()
+  let task = null
+  if (tasks.length === 1) {
+    const only = tasks[0]
+    const v = only?.data?.video ?? only?.video
+    const b = clipBasenameFromLsVideoField(v)?.toLowerCase()
+    if (!b || b === basename || recordBasename === basename) task = only
+  }
+  if (!task) {
+    task = tasks.find((t) => {
+      const v = t?.data?.video ?? t?.video
+      const b = clipBasenameFromLsVideoField(v)
+      return b && b.toLowerCase() === basename
+    })
+  }
+  if (!task && recordBasename === basename && tasks.length > 0) task = tasks[0]
   if (!task) {
     return {
       error: `No task matches this file (${basename}). Export URLs should point at that clip.`,
@@ -165,4 +206,32 @@ export function playingIntervalsSecondsForExport(
     return { error: 'All imported segments lie outside this video\'s duration.' }
 
   return { intervals }
+}
+
+/**
+ * Parse label JSON (any supported shape) and return playing intervals for the open video.
+ * @returns {{ intervals?: { start: number, end: number }[], error?: string }}
+ */
+export function playingIntervalsSecondsFromLabelJson(raw, fileLabel, durationSec, fps) {
+  let data
+  try {
+    data = typeof raw === 'string' ? JSON.parse(raw) : raw
+  } catch {
+    return { error: 'Invalid JSON file.' }
+  }
+  let tasks
+  try {
+    tasks = normalizeLabelStudioTasks(data)
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unrecognized label JSON format.' }
+  }
+  const labelRecord =
+    data && typeof data === 'object' && !Array.isArray(data) ? data : null
+  return playingIntervalsSecondsForExport(
+    tasks,
+    fileLabel,
+    durationSec,
+    fps,
+    { labelRecord },
+  )
 }
