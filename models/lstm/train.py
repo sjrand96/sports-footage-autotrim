@@ -22,7 +22,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -35,7 +34,8 @@ from models.lstm.dataset import (  # noqa: E402
     DEFAULT_FRAME_STRIDE,
     FeatureWindowDataset,
     WINDOW_RADIUS,
-    bce_pos_weight_from_counts,
+    class_weight_ratio_from_counts,
+    tversky_coefficients_from_counts,
     clip_to_source_map,
     list_clip_ids,
     load_labels_by_clip,
@@ -70,7 +70,8 @@ LSTM_HIDDEN_SIZE = 128
 LSTM_NUM_LAYERS = 1
 LSTM_DROPOUT = 0.0  # only used when LSTM_NUM_LAYERS > 1 (between LSTM layers)
 HEAD_DROPOUT = 0.3  # on BiLSTM output before the linear head (active in train mode)
-DEFAULT_CHECKPOINT_METRIC = "recall"  # loss | recall | cost
+DEFAULT_CHECKPOINT_METRIC = "loss"  # loss | recall | cost
+TVERSKY_SMOOTH = 1e-6
 
 
 def temporal_model_from_config(feat_dim: int, config: dict) -> TemporalPlayingClassifier:
@@ -85,7 +86,9 @@ def temporal_model_from_config(feat_dim: int, config: dict) -> TemporalPlayingCl
 
 
 def pos_weight_from_config(config: dict) -> float:
-    """BCE / cost positive-class weight from checkpoint config (legacy keys supported)."""
+    """Cost FN weight / Tversky beta from checkpoint config (legacy keys supported)."""
+    if "tversky_beta" in config:
+        return float(config["tversky_beta"])
     if "pos_weight" in config:
         return float(config["pos_weight"])
     if "fn_fp_weight_ratio" in config:
@@ -100,48 +103,81 @@ def pos_weight_from_config(config: dict) -> float:
     return 1.0
 
 
+def tversky_coefficients_from_config(config: dict) -> tuple[float, float]:
+    if "tversky_alpha" in config and "tversky_beta" in config:
+        alpha = float(config["tversky_alpha"])
+        beta = float(config["tversky_beta"])
+    else:
+        ratio = pos_weight_from_config(config)
+        alpha, beta = 1.0, ratio
+    total = alpha + beta
+    if total <= 0:
+        return 0.5, 0.5
+    return alpha / total, beta / total
+
+
 def pred_threshold_from_config(config: dict) -> float:
     if "pred_threshold" in config:
         return float(config["pred_threshold"])
     return DEFAULT_PRED_THRESHOLD
 
 
-def bce_with_logits_loss(pos_weight: float, device: torch.device) -> nn.BCEWithLogitsLoss:
-    pw = torch.tensor([pos_weight], dtype=torch.float32, device=device)
-    return nn.BCEWithLogitsLoss(pos_weight=pw)
+def tversky_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    alpha: float,
+    beta: float,
+    smooth: float = TVERSKY_SMOOTH,
+) -> torch.Tensor:
+    """``1 - Tversky`` on sigmoid probabilities (batch-level scalar)."""
+    probs = torch.sigmoid(logits)
+    t = targets.to(dtype=probs.dtype)
+    tp = (probs * t).sum()
+    fp = (probs * (1.0 - t)).sum()
+    fn = ((1.0 - probs) * t).sum()
+    tversky = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
+    return 1.0 - tversky
 
 
-def masked_bce_with_logits_loss(
+def masked_tversky_loss(
     logits: torch.Tensor,
     targets: torch.Tensor,
     mask: torch.Tensor,
-    pos_weight: float,
-    device: torch.device,
+    *,
+    alpha: float,
+    beta: float,
+    smooth: float = TVERSKY_SMOOTH,
 ) -> torch.Tensor:
-    """Weighted BCE averaged only over samples with ``mask > 0`` (boundary frames excluded)."""
-    weighted, denom = masked_bce_with_logits_sum(logits, targets, mask, pos_weight, device)
+    """Tversky loss over samples with ``mask > 0`` (boundary frames excluded)."""
+    weighted, denom = masked_tversky_loss_sum(
+        logits, targets, mask, alpha=alpha, beta=beta, smooth=smooth
+    )
     if denom <= 0:
         return weighted.sum() * 0.0
     return weighted / denom
 
 
-def masked_bce_with_logits_sum(
+def masked_tversky_loss_sum(
     logits: torch.Tensor,
     targets: torch.Tensor,
     mask: torch.Tensor,
-    pos_weight: float,
-    device: torch.device,
+    *,
+    alpha: float,
+    beta: float,
+    smooth: float = TVERSKY_SMOOTH,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return ``(weighted_loss_sum, mask_sum)`` for global epoch/loader averaging."""
-    pw = torch.tensor([pos_weight], dtype=logits.dtype, device=device)
-    per_elem = nn.functional.binary_cross_entropy_with_logits(
-        logits,
-        targets,
-        pos_weight=pw,
-        reduction="none",
-    )
-    m = mask.to(dtype=per_elem.dtype)
-    return (per_elem * m).sum(), m.sum()
+    """Return ``(loss * mask_sum, mask_sum)`` for global epoch/loader averaging."""
+    probs = torch.sigmoid(logits)
+    m = mask.to(dtype=probs.dtype)
+    t = targets.to(dtype=probs.dtype)
+    tp = (probs * t * m).sum()
+    fp = (probs * (1.0 - t) * m).sum()
+    fn = ((1.0 - probs) * t * m).sum()
+    denom = m.sum()
+    tversky = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
+    loss = 1.0 - tversky
+    return loss * denom, denom
 
 
 def binary_metrics(
@@ -150,7 +186,7 @@ def binary_metrics(
     *,
     pos_weight: float,
 ) -> dict[str, float]:
-    """Thresholded frame metrics; ``cost = pos_weight * FN + FP`` (matches BCE class weighting)."""
+    """Thresholded frame metrics; ``cost = pos_weight * FN + FP`` (matches Tversky beta on FN)."""
     yt = y_true.astype(np.int64).ravel()
     yp = y_pred.astype(np.int64).ravel()
     tp = int(((yp == 1) & (yt == 1)).sum())
@@ -270,13 +306,14 @@ def evaluate_loader(
     device: torch.device,
     pos_weight: float,
     *,
+    tversky_alpha: float,
+    tversky_beta: float,
     boundary_margin: int = 0,
     pred_threshold: float = DEFAULT_PRED_THRESHOLD,
 ) -> dict[str, float]:
     model.eval()
     loss_sum = 0.0
     mask_sum = 0.0
-    criterion = bce_with_logits_loss(pos_weight, device)
     y_true: list[np.ndarray] = []
     y_pred: list[np.ndarray] = []
 
@@ -287,14 +324,22 @@ def evaluate_loader(
             logits = model(seq)
             if boundary_margin > 0:
                 loss_mask = batch["loss_mask"].to(device).unsqueeze(1)
-                wsum, msum = masked_bce_with_logits_sum(
-                    logits, labels, loss_mask, pos_weight, device
+                wsum, msum = masked_tversky_loss_sum(
+                    logits,
+                    labels,
+                    loss_mask,
+                    alpha=tversky_alpha,
+                    beta=tversky_beta,
                 )
                 loss_sum += float(wsum.item())
                 mask_sum += float(msum.item())
             else:
-                loss_sum += float(criterion(logits, labels).item()) * labels.numel()
-                mask_sum += float(labels.numel())
+                loss = tversky_loss(
+                    logits, labels, alpha=tversky_alpha, beta=tversky_beta
+                )
+                n = float(labels.numel())
+                loss_sum += float(loss.item()) * n
+                mask_sum += n
             probs = torch.sigmoid(logits).cpu().numpy().ravel()
             preds = (probs >= pred_threshold).astype(np.int64)
             y_true.append(labels.long().cpu().numpy().ravel())
@@ -532,10 +577,12 @@ def train(
     n_pos, n_neg = train_label_counts(
         train_ids, labels_by_clip, boundary_margin=bmargin, frame_stride=frame_stride
     )
-    pos_weight = bce_pos_weight_from_counts(n_pos, n_neg)
+    tversky_alpha, tversky_beta = tversky_coefficients_from_counts(n_pos, n_neg)
+    pos_weight = class_weight_ratio_from_counts(n_pos, n_neg)
     print(
-        f"  class weights (inverse freq): n_pos={n_pos} n_neg={n_neg} "
-        f"pos_weight={pos_weight:.4f} (BCE + cost FN term)"
+        f"  class weights: n_pos={n_pos} n_neg={n_neg} "
+        f"tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
+        f"(sum={tversky_alpha + tversky_beta:.4f}) pos_weight={pos_weight:.4f} (cost FN)"
     )
 
     print(f"  train samples={len(train_ds)} test samples={len(test_ds)}")
@@ -574,7 +621,6 @@ def train(
         dropout=LSTM_DROPOUT,
         head_dropout=hd,
     ).to(dev)
-    eval_criterion = bce_with_logits_loss(pos_weight, dev)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr_val, weight_decay=wd)
 
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -594,6 +640,9 @@ def train(
         "epochs": epochs,
         "lr": lr_val,
         "weight_decay": wd,
+        "loss": "tversky",
+        "tversky_alpha": tversky_alpha,
+        "tversky_beta": tversky_beta,
         "pos_weight": pos_weight,
         "train_n_pos": n_pos,
         "train_n_neg": n_neg,
@@ -629,14 +678,20 @@ def train(
             optimizer.zero_grad(set_to_none=True)
             logits = model(seq)
             if bmargin > 0:
-                wsum, msum = masked_bce_with_logits_sum(
-                    logits, labels, loss_mask, pos_weight, dev
+                wsum, msum = masked_tversky_loss_sum(
+                    logits,
+                    labels,
+                    loss_mask,
+                    alpha=tversky_alpha,
+                    beta=tversky_beta,
                 )
                 loss = wsum / msum.clamp(min=1.0)
                 train_loss_sum += float(wsum.item())
                 train_mask_sum += float(msum.item())
             else:
-                loss = eval_criterion(logits, labels)
+                loss = tversky_loss(
+                    logits, labels, alpha=tversky_alpha, beta=tversky_beta
+                )
                 train_loss_sum += float(loss.item()) * labels.numel()
                 train_mask_sum += float(labels.numel())
             loss.backward()
@@ -648,6 +703,8 @@ def train(
             test_loader,
             dev,
             pos_weight,
+            tversky_alpha=tversky_alpha,
+            tversky_beta=tversky_beta,
             boundary_margin=bmargin,
             pred_threshold=pred_thr,
         )
@@ -754,6 +811,7 @@ def eval_checkpoint(
         raise RuntimeError(f"checkpoint missing feat_dim: {checkpoint}")
 
     backbone = str(config.get("backbone", BACKBONE))
+    tversky_alpha, tversky_beta = tversky_coefficients_from_config(config)
     pos_weight = pos_weight_from_config(config)
     pred_thr = (
         pred_threshold_from_config(config)
@@ -763,7 +821,8 @@ def eval_checkpoint(
     test_ids = resolved_test_clip_ids_from_config(config)
     print(
         f"checkpoint={checkpoint.name} device={dev} test clips={len(test_ids)} "
-        f"pos_weight={pos_weight:.4f} pred_threshold={pred_thr}"
+        f"tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
+        f"pred_threshold={pred_thr}"
     )
 
     ensure_features_for_clips(
@@ -849,7 +908,7 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint-metric",
         choices=("loss", "recall", "cost"),
         default=DEFAULT_CHECKPOINT_METRIC,
-        help="Save best.pt when this test metric improves (default: recall).",
+        help="Save best.pt when this test metric improves (default: loss).",
     )
     p.add_argument(
         "--checkpoint-dir",

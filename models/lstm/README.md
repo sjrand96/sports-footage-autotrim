@@ -54,8 +54,8 @@ python models/lstm/train.py --eval-only --device mps
 ## Training
 
 - **Split:** 70% train / 30% test by `clip_id` (`random_seed=42`)
-- **Loss:** weighted BCE with fixed **`pos_weight = POS_WEIGHT_POSITIVE`** (default **2**) on playing; adjust in `train.py`
-- **Checkpoint:** `best.pt` by highest test recall, then lowest cost
+- **Loss:** Tversky (`1 - TI`) with **`tversky_alpha = n_pos / (n_pos + n_neg)`**, **`tversky_beta = n_neg / (n_pos + n_neg)`** (sum to 1); cost metric still uses inverse-frequency **`pos_weight = n_neg / n_pos`** on FN
+- **Checkpoint:** `best.pt` by lowest test Tversky loss (default `--checkpoint-metric loss`)
 - **Outputs:** `checkpoints/best.pt`, `last.pt`, `train_config.json`, `test_clip_metrics.json`
 
 After the last epoch, `train.py` reloads `best.pt` and prints per-clip recall, precision, F1, cost, and confusion counts, plus a pooled summary over all test frames.

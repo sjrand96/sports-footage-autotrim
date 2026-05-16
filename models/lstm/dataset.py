@@ -45,11 +45,28 @@ def train_label_counts(
     return n_pos, n_neg
 
 
-def bce_pos_weight_from_counts(n_pos: int, n_neg: int) -> float:
-    """``BCEWithLogitsLoss(pos_weight)`` = n_neg / n_pos (inverse class frequency for playing)."""
+def class_weight_ratio_from_counts(n_pos: int, n_neg: int) -> float:
+    """Inverse class frequency n_neg / n_pos (playing vs inactive)."""
     if n_pos <= 0:
         raise ValueError("no positive (playing) frames in training count")
     return float(n_neg) / float(n_pos)
+
+
+def bce_pos_weight_from_counts(n_pos: int, n_neg: int) -> float:
+    """Deprecated alias for :func:`class_weight_ratio_from_counts`."""
+    return class_weight_ratio_from_counts(n_pos, n_neg)
+
+
+def tversky_coefficients_from_counts(n_pos: int, n_neg: int) -> tuple[float, float]:
+    """Tversky (alpha=FP, beta=FN) with ``alpha + beta == 1`` from class frequencies."""
+    total = n_pos + n_neg
+    if total <= 0:
+        raise ValueError("no labeled frames in training count")
+    if n_pos <= 0:
+        raise ValueError("no positive (playing) frames in training count")
+    alpha = float(n_pos) / float(total)
+    beta = float(n_neg) / float(total)
+    return alpha, beta
 
 
 def loss_mask_for_labels(labels: np.ndarray, margin: int) -> np.ndarray:

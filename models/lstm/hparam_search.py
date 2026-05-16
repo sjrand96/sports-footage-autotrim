@@ -3,7 +3,7 @@
 
     python models/lstm/hparam_search.py --device mps --n-trials 30 --quiet
 
-Class weights (pos_weight) are computed from training label counts inside train.py.
+Tversky class weights (beta from inverse frequency) are computed from training counts in train.py.
 """
 
 from __future__ import annotations
@@ -210,8 +210,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Random hyperparameter search for train.py")
     p.add_argument("--n-trials", type=int, default=30)
     p.add_argument("--seed", type=int, default=RANDOM_SEED)
-    p.add_argument("--objective", choices=("loss", "cost", "recall"), default="recall")
-    p.add_argument("--checkpoint-metric", choices=("loss", "recall", "cost"), default="recall")
+    p.add_argument("--objective", choices=("loss", "cost", "recall"), default="loss")
+    p.add_argument("--checkpoint-metric", choices=("loss", "recall", "cost"), default="loss")
     p.add_argument("--output-dir", type=Path, default=SEARCH_DIR)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--device", default=None)
