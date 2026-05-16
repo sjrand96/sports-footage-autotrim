@@ -7,14 +7,31 @@ import {
 } from './selectedIntervalPlayback.js'
 import { playingIntervalsSecondsFromFramePredictionsCsv } from './framePredictionsImport.js'
 import { playingIntervalsSecondsFromLabelJson } from './labelStudioImport.js'
+import {
+  canExportCut,
+  defaultCutOutputName,
+  exportCutVideo,
+  getLocalVideoPath,
+} from './exportCutVideo.js'
 import './App.css'
 
 const MIN_INTERVAL_SEC = 0.05
 
+function applyImportedIntervals(imported, nextId) {
+  return imported.map((iv) => ({
+    id: nextId(),
+    start: iv.start,
+    end: iv.end,
+  }))
+}
+
 export default function App() {
   const videoRef = useRef(null)
+  const sourceFileRef = useRef(null)
+  const sourceFilePathRef = useRef(null)
   const intervalIdRef = useRef(0)
   const groundTruthIntervalIdRef = useRef(0)
+  const [appMode, setAppMode] = useState('evaluation')
   const [sourceUrl, setSourceUrl] = useState(null)
   const [fileLabel, setFileLabel] = useState('')
   const [duration, setDuration] = useState(0)
@@ -24,11 +41,13 @@ export default function App() {
   const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
   const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
+  const [editorLabelsImportName, setEditorLabelsImportName] = useState('')
   const [groundTruthLabelsImportName, setGroundTruthLabelsImportName] =
     useState('')
   const [labelsImportError, setLabelsImportError] = useState('')
+  const [exportStatus, setExportStatus] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
-  // clean up the old URL when the source URL changes
   const revokeUrl = useCallback((url) => {
     if (url && url.startsWith('blob:')) {
       URL.revokeObjectURL(url)
@@ -54,6 +73,8 @@ export default function App() {
     e.target.value = ''
     if (!file) return
     revokeUrl(sourceUrl)
+    sourceFileRef.current = file
+    sourceFilePathRef.current = getLocalVideoPath(file)
     const url = URL.createObjectURL(file)
     setSourceUrl(url)
     setFileLabel(file.name)
@@ -63,84 +84,127 @@ export default function App() {
     setIntervals([])
     setGroundTruthIntervals([])
     setPredictLabelsImportName('')
+    setEditorLabelsImportName('')
     setGroundTruthLabelsImportName('')
     setLabelsImportError('')
+    setExportStatus('')
   }
+
+  const importLabelsFromFile = useCallback(
+    (file, raw, { target }) => {
+      const isCsv = /\.csv$/i.test(file.name)
+      const { intervals: imported, error } = isCsv
+        ? playingIntervalsSecondsFromFramePredictionsCsv(raw, fileLabel, duration)
+        : playingIntervalsSecondsFromLabelJson(raw, fileLabel, duration)
+
+      if (error) {
+        if (target === 'editor') setEditorLabelsImportName('')
+        else if (target === 'predicted') setPredictLabelsImportName('')
+        else setGroundTruthLabelsImportName('')
+        setLabelsImportError(error)
+        return false
+      }
+
+      const withIds = applyImportedIntervals(
+        imported,
+        target === 'groundTruth' ? nextGroundTruthIntervalId : nextIntervalId,
+      )
+
+      if (target === 'editor') {
+        setIntervals(withIds)
+        setGroundTruthIntervals([])
+        setEditorLabelsImportName(file.name)
+        setPredictLabelsImportName('')
+        setGroundTruthLabelsImportName('')
+      } else if (target === 'predicted') {
+        setIntervals(withIds)
+        setPredictLabelsImportName(file.name)
+      } else {
+        setGroundTruthIntervals(withIds)
+        setGroundTruthLabelsImportName(file.name)
+      }
+
+      setLabelsImportError('')
+      return true
+    },
+    [duration, fileLabel, nextGroundTruthIntervalId, nextIntervalId],
+  )
+
+  const onPickEditorLabels = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file || !Number.isFinite(duration) || duration <= 0) {
+        setEditorLabelsImportName('')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => importLabelsFromFile(file, reader.result, { target: 'editor' })
+      reader.onerror = () => setEditorLabelsImportName('')
+      reader.readAsText(file)
+    },
+    [duration, importLabelsFromFile],
+  )
 
   const onPickPredictedLabels = useCallback(
     (e) => {
       const file = e.target.files?.[0]
       e.target.value = ''
-      if (!file) return
-      if (!Number.isFinite(duration) || duration <= 0) {
+      if (!file || !Number.isFinite(duration) || duration <= 0) {
         setPredictLabelsImportName('')
         return
       }
       const reader = new FileReader()
-      reader.onload = () => {
-        const isCsv = /\.csv$/i.test(file.name)
-        const { intervals: imported, error } = isCsv
-          ? playingIntervalsSecondsFromFramePredictionsCsv(
-              reader.result,
-              fileLabel,
-              duration,
-            )
-          : playingIntervalsSecondsFromLabelJson(reader.result, fileLabel, duration)
-        if (error) {
-          setPredictLabelsImportName('')
-          setLabelsImportError(error)
-          return
-        }
-        const withIds = imported.map((iv) => ({
-          id: nextIntervalId(),
-          start: iv.start,
-          end: iv.end,
-        }))
-        setIntervals(withIds)
-        setPredictLabelsImportName(file.name)
-        setLabelsImportError('')
-      }
+      reader.onload = () => importLabelsFromFile(file, reader.result, { target: 'predicted' })
       reader.onerror = () => setPredictLabelsImportName('')
       reader.readAsText(file)
     },
-    [duration, fileLabel, nextIntervalId],
+    [duration, importLabelsFromFile],
   )
 
   const onPickGroundTruthLabels = useCallback(
     (e) => {
       const file = e.target.files?.[0]
       e.target.value = ''
-      if (!file) return
-      if (!Number.isFinite(duration) || duration <= 0) {
+      if (!file || !Number.isFinite(duration) || duration <= 0) {
         setGroundTruthLabelsImportName('')
         return
       }
       const reader = new FileReader()
-      reader.onload = () => {
-        const { intervals: imported, error } = playingIntervalsSecondsFromLabelJson(
-          reader.result,
-          fileLabel,
-          duration,
-        )
-        if (error) {
-          setGroundTruthLabelsImportName('')
-          setLabelsImportError(error)
-          return
-        }
-        const withIds = imported.map((iv) => ({
-          id: nextGroundTruthIntervalId(),
-          start: iv.start,
-          end: iv.end,
-        }))
-        setGroundTruthIntervals(withIds)
-        setGroundTruthLabelsImportName(file.name)
-        setLabelsImportError('')
-      }
+      reader.onload = () => importLabelsFromFile(file, reader.result, { target: 'groundTruth' })
       reader.onerror = () => setGroundTruthLabelsImportName('')
       reader.readAsText(file)
     },
-    [duration, fileLabel, nextGroundTruthIntervalId],
+    [duration, importLabelsFromFile],
   )
+
+  const onExportCutVideo = useCallback(async () => {
+    setExportStatus('')
+    setLabelsImportError('')
+    const file = sourceFileRef.current
+    const inputPath =
+      sourceFilePathRef.current ?? getLocalVideoPath(file)
+    if (!canExportCut(intervals)) {
+      setExportStatus('Add at least one playing interval before exporting.')
+      return
+    }
+
+    setIsExporting(true)
+    try {
+      const result = await exportCutVideo({
+        inputPath,
+        intervals,
+        suggestedName: defaultCutOutputName(fileLabel),
+      })
+      if (result.ok) {
+        setExportStatus(`Saved to ${result.outputPath}`)
+      } else if (!result.cancelled) {
+        setExportStatus(result.error)
+      }
+    } finally {
+      setIsExporting(false)
+    }
+  }, [fileLabel, intervals])
 
   const onTimeUpdate = () => {
     const v = videoRef.current
@@ -219,14 +283,37 @@ export default function App() {
     gatePlaySelectedOnly(v, intervals)
   }, [playSelectedOnly, intervals])
 
+  const isEditor = appMode === 'editor'
+  const exportReady = isEditor && duration > 0 && canExportCut(intervals)
+
   return (
     <div className="app">
       <header className="app-header">
         <h1 className="title">Volleyball Video Editor</h1>
-        <label className="file-button">
-          Open video
-          <input type="file" accept="video/*" onChange={onPickFile} hidden />
-        </label>
+        <div className="app-header-actions">
+          <div className="mode-toggle" role="group" aria-label="Application mode">
+            <button
+              type="button"
+              className={`mode-toggle-btn${isEditor ? ' mode-toggle-btn--active' : ''}`}
+              aria-pressed={isEditor}
+              onClick={() => setAppMode('editor')}
+            >
+              Editor
+            </button>
+            <button
+              type="button"
+              className={`mode-toggle-btn${!isEditor ? ' mode-toggle-btn--active' : ''}`}
+              aria-pressed={!isEditor}
+              onClick={() => setAppMode('evaluation')}
+            >
+              Evaluation
+            </button>
+          </div>
+          <label className="file-button">
+            Open video
+            <input type="file" accept="video/*" onChange={onPickFile} hidden />
+          </label>
+        </div>
       </header>
 
       <main className="main">
@@ -256,75 +343,123 @@ export default function App() {
               </div>
 
               <div className="controls">
-              <div className="file-row">
-                <span className="file-name" title={fileLabel}>
-                  {fileLabel}
-                </span>
-                <div className="import-json-slot import-json-slot--predicted">
-                  <label
-                    className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
-                  >
-                    Import predicted labels
-                    <input
-                      type="file"
-                      accept="application/json,.json,text/csv,.csv"
-                      onChange={onPickPredictedLabels}
-                      disabled={!duration}
-                      hidden
-                    />
-                  </label>
-                  {predictLabelsImportName ? (
-                    <span
-                      className="labels-json-filename"
-                      title={predictLabelsImportName}
-                    >
-                      {predictLabelsImportName}
-                    </span>
-                  ) : null}
+                <div className="file-row">
+                  <span className="file-name" title={fileLabel}>
+                    {fileLabel}
+                  </span>
+
+                  {isEditor ? (
+                    <>
+                      <div className="import-json-slot import-json-slot--editor">
+                        <label
+                          className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                        >
+                          Import labels
+                          <input
+                            type="file"
+                            accept="application/json,.json,text/csv,.csv"
+                            onChange={onPickEditorLabels}
+                            disabled={!duration}
+                            hidden
+                          />
+                        </label>
+                        {editorLabelsImportName ? (
+                          <span
+                            className="labels-json-filename"
+                            title={editorLabelsImportName}
+                          >
+                            {editorLabelsImportName}
+                          </span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className={`file-button file-button--secondary${!exportReady || isExporting ? ' file-button--disabled' : ''}`}
+                        disabled={!exportReady || isExporting}
+                        onClick={onExportCutVideo}
+                      >
+                        {isExporting ? 'Exporting…' : 'Export cut video'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="import-json-slot import-json-slot--predicted">
+                        <label
+                          className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                        >
+                          Import predicted labels
+                          <input
+                            type="file"
+                            accept="application/json,.json,text/csv,.csv"
+                            onChange={onPickPredictedLabels}
+                            disabled={!duration}
+                            hidden
+                          />
+                        </label>
+                        {predictLabelsImportName ? (
+                          <span
+                            className="labels-json-filename"
+                            title={predictLabelsImportName}
+                          >
+                            {predictLabelsImportName}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="import-json-slot import-json-slot--truth">
+                        <label
+                          className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                        >
+                          Import ground truth labels
+                          <input
+                            type="file"
+                            accept="application/json,.json"
+                            onChange={onPickGroundTruthLabels}
+                            disabled={!duration}
+                            hidden
+                          />
+                        </label>
+                        {groundTruthLabelsImportName ? (
+                          <span
+                            className="labels-json-filename"
+                            title={groundTruthLabelsImportName}
+                          >
+                            {groundTruthLabelsImportName}
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="import-json-slot import-json-slot--truth">
-                  <label
-                    className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+
+                {labelsImportError ? (
+                  <p className="labels-import-error" role="alert">
+                    {labelsImportError}
+                  </p>
+                ) : null}
+
+                {exportStatus ? (
+                  <p
+                    className={`labels-import-status${exportStatus.startsWith('Saved') ? ' labels-import-status--ok' : ''}`}
+                    role="status"
                   >
-                    Import ground truth labels
-                    <input
-                      type="file"
-                      accept="application/json,.json"
-                      onChange={onPickGroundTruthLabels}
-                      disabled={!duration}
-                      hidden
-                    />
-                  </label>
-                  {groundTruthLabelsImportName ? (
-                    <span
-                      className="labels-json-filename"
-                      title={groundTruthLabelsImportName}
-                    >
-                      {groundTruthLabelsImportName}
-                    </span>
-                  ) : null}
+                    {exportStatus}
+                  </p>
+                ) : null}
+
+                <div className="playback-block">
+                  <PlaybackTimeline
+                    mode={appMode}
+                    duration={duration}
+                    currentTime={currentTime}
+                    intervals={intervals}
+                    groundTruthIntervals={groundTruthIntervals}
+                    isPlaying={isPlaying}
+                    onTogglePlay={togglePlay}
+                    onSeek={seek}
+                    onIntervalBoundaryChange={onIntervalBoundaryChange}
+                  />
                 </div>
               </div>
-
-              {labelsImportError ? (
-                <p className="labels-import-error" role="alert">
-                  {labelsImportError}
-                </p>
-              ) : null}
-
-              <div className="playback-block">
-                <PlaybackTimeline
-                  duration={duration}
-                  currentTime={currentTime}
-                  intervals={intervals}
-                  groundTruthIntervals={groundTruthIntervals}
-                  isPlaying={isPlaying}
-                  onTogglePlay={togglePlay}
-                  onSeek={seek}
-                  onIntervalBoundaryChange={onIntervalBoundaryChange}
-                />
-              </div>
-            </div>
             </div>
           </div>
         )}

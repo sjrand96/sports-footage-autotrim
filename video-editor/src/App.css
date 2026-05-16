@@ -16,6 +16,45 @@
   background: #141820;
 }
 
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: #252a33;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mode-toggle-btn {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #9aa0a6;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mode-toggle-btn:hover {
+  color: #e8eaed;
+}
+
+.mode-toggle-btn--active {
+  color: #0f1115;
+  background: #8ab4f8;
+}
+
+.mode-toggle-btn--active:hover {
+  color: #0f1115;
+}
+
 .title {
   margin: 0;
   font-size: 1.1rem;
@@ -336,6 +375,29 @@
   font-size: 0.8rem;
   color: #f28b82;
   line-height: 1.4;
+}
+
+.labels-import-status {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #9aa0a6;
+  line-height: 1.4;
+}
+
+.labels-import-status--ok {
+  color: #6ddc96;
+}
+
+.import-json-slot--editor .labels-json-filename {
+  color: #c4a8ff;
+}
+
+.playback-row--editor {
+  --playback-accent: rgba(138, 180, 248, 0.55);
+}
+
+.playback-track--editable {
+  min-height: 15px;
 }
 
 .hint {

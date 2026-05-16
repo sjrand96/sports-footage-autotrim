@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { isPlayingAt, mergeIntervals, totalPlayingSeconds } from './timelineMetrics.js'
 
 export default function PlaybackTimeline({
+  mode = 'evaluation',
   duration,
   currentTime,
   intervals,
@@ -11,7 +12,9 @@ export default function PlaybackTimeline({
   onSeek,
   onIntervalBoundaryChange,
 }) {
+  const isEditor = mode === 'editor'
   const masterTrackRef = useRef(null)
+  const editorTrackRef = useRef(null)
   const gtTrackRef = useRef(null)
   const predTrackRef = useRef(null)
 
@@ -83,7 +86,7 @@ export default function PlaybackTimeline({
     window.addEventListener('pointerup', up)
   }
 
-  const onHandlePointerDown = (e, intervalId, edge) => {
+  const onHandlePointerDown = (e, intervalId, edge, trackRef) => {
     if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
@@ -96,7 +99,7 @@ export default function PlaybackTimeline({
     node.setPointerCapture(e.pointerId)
 
     const move = (ev) => {
-      const t = timeFromClientX(ev.clientX)
+      const t = timeFromClientX(ev.clientX, trackRef.current)
       if (t != null) onIntervalBoundaryChange(intervalId, edge, t)
     }
     const up = () => {
@@ -263,8 +266,98 @@ export default function PlaybackTimeline({
         </div>
       </div>
 
-      {/* Ground truth timeline row */}
-      {groundTruthIntervals && groundTruthIntervals.length > 0 ? (
+      {/* Editor: single editable labels row with trim handles */}
+      {isEditor ? (
+        <div className="playback-row playback-row--secondary playback-row--editor">
+          <div
+            className="playback-row-label playback-left-slot"
+            aria-label="Playing segments row label"
+          >
+            <span className="playback-row-swatch" aria-hidden />
+            <span className="playback-row-label-text">
+              <span className="playback-row-label-title">Playing</span>
+              <span className="playback-row-label-subtitle">Drag handles to adjust</span>
+            </span>
+          </div>
+
+          <div className="playback-body">
+            <div className="playback-track-column">
+              <div
+                ref={editorTrackRef}
+                className="playback-stack"
+                onPointerDown={(e) => onTrackPointerDown(e, editorTrackRef)}
+                role="presentation"
+              >
+                <div className="playback-track playback-track--editable">
+                  <div className="playback-track-inactive" aria-hidden />
+                  {intervals.map((iv) => {
+                    const left = (iv.start / duration) * 100
+                    const w = ((iv.end - iv.start) / duration) * 100
+                    return (
+                      <div
+                        key={iv.id}
+                        className="playback-interval playback-interval--accent"
+                        aria-hidden
+                        title="Playing segment"
+                        style={{ left: `${left}%`, width: `${w}%` }}
+                      />
+                    )
+                  })}
+                  {intervals.length > 0 ? (
+                    <div className="playback-handles" aria-hidden>
+                      {intervals.map((iv) => {
+                        const startPct = (iv.start / duration) * 100
+                        const endPct = (iv.end / duration) * 100
+                        return (
+                          <span key={iv.id} className="playback-handle-pair">
+                            <button
+                              type="button"
+                              className="playback-handle"
+                              data-timeline-handle
+                              style={{ left: `${startPct}%` }}
+                              aria-label={`Start of segment at ${formatTime(iv.start)}`}
+                              onPointerDown={(e) =>
+                                onHandlePointerDown(e, iv.id, 'start', editorTrackRef)
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="playback-handle"
+                              data-timeline-handle
+                              style={{ left: `${endPct}%` }}
+                              aria-label={`End of segment at ${formatTime(iv.end)}`}
+                              onPointerDown={(e) =>
+                                onHandlePointerDown(e, iv.id, 'end', editorTrackRef)
+                              }
+                            />
+                          </span>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div
+                  className="playback-playhead playback-playhead--no-triangle"
+                  data-playhead
+                  style={{ left: `${pct}%` }}
+                  onPointerDown={(e) => onPlayheadPointerDown(e, editorTrackRef)}
+                >
+                  <div className="playback-playhead-triangle" aria-hidden />
+                  <div className="playback-playhead-line" aria-hidden />
+                </div>
+              </div>
+            </div>
+
+            <div className="playback-coverage playback-right-slot" title="Playing coverage">
+              {`${predictedCoveragePct.toFixed(1)}%`}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Evaluation: ground truth timeline row */}
+      {!isEditor && groundTruthIntervals && groundTruthIntervals.length > 0 ? (
         <div className="playback-row playback-row--secondary playback-row--ground-truth">
           <div
             className="playback-row-label playback-left-slot"
@@ -327,8 +420,8 @@ export default function PlaybackTimeline({
         </div>
       ) : null}
 
-      {/* Predicted timeline row */}
-      {intervals && intervals.length > 0 ? (
+      {/* Evaluation: predicted timeline row */}
+      {!isEditor && intervals && intervals.length > 0 ? (
         <div className="playback-row playback-row--secondary playback-row--predicted">
           <div
             className="playback-row-label playback-left-slot"
@@ -388,8 +481,8 @@ export default function PlaybackTimeline({
         </div>
       ) : null}
 
-      {/* Confusion matrix timelines */}
-      {predMerged.length > 0 && gtMerged.length > 0 ? (
+      {/* Evaluation: confusion matrix timelines */}
+      {!isEditor && predMerged.length > 0 && gtMerged.length > 0 ? (
         <>
           <div className="playback-divider" role="separator" aria-hidden />
 
