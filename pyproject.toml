@@ -36,6 +36,15 @@ eval = [
     "matplotlib>=3.8",
     "pandas>=2.0",
 ]
+training = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "wandb>=0.16",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

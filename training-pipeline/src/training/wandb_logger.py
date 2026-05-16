@@ -12,6 +12,7 @@ import numpy as np
 class WandbConfig:
     project: str
     run_name: Optional[str] = None
+    entity: Optional[str] = None
     enabled: bool = True
 
 
@@ -27,7 +28,7 @@ class WandbLogger:
             self.enabled = False
             return
         self._wandb = wandb
-        self._wandb.init(project=cfg.project, name=cfg.run_name, config=config)
+        self._wandb.init(project=cfg.project, entity=cfg.entity, name=cfg.run_name, config=config)
 
     def get(self) -> Any:
         return self._wandb
