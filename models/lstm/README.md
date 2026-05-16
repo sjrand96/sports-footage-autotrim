@@ -54,7 +54,7 @@ python models/lstm/train.py --eval-only --device mps
 ## Training
 
 - **Split:** 70% train / 30% test by `clip_id` (`random_seed=42`)
-- **Loss:** weighted BCE (`pos_weight = neg/pos × 4`)
+- **Loss:** weighted BCE with fixed **`pos_weight = POS_WEIGHT_POSITIVE`** (default **2**) on playing; adjust in `train.py`
 - **Checkpoint:** `best.pt` by highest test recall, then lowest cost
 - **Outputs:** `checkpoints/best.pt`, `last.pt`, `train_config.json`, `test_clip_metrics.json`
 
