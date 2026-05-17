@@ -84,3 +84,17 @@ export RUN_ID=mini_frames_1clip
 aws s3 ls "s3://sports-footage-autotrim-bucket/clips_v2/1rXZJyVXUHU/1/frames/" | wc -l
 grep frames_upload "feature_extraction/_runs/$RUN_ID/timings.json"
 ```
+
+## Tabular XGBoost (phase 3)
+
+Train on the extract-time split (`train/` + `test/` parquets; `is_playing` is already in each row):
+
+```bash
+.venv/bin/python models/tabular_xgb/train.py \
+  --feature-run-id mini_20260517T183530Z \
+  --save-report-json feature_extraction/_runs/mini_20260517T183530Z/xgb_report.json
+
+# See models/tabular_xgb/README.md
+```
+
+Requires at least one parquet in **both** `train/` and `test/` (use a multi-clip run or adjust `clip_split.py`).

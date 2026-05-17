@@ -57,3 +57,29 @@ PROVENANCE_COLUMNS: list[str] = [
 ]
 
 PARQUET_COLUMNS: list[str] = list(PROVENANCE_COLUMNS) + list(FEATURE_COLUMNS)
+
+INTEGER_FEATURE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "n_players_total",
+        "n_front_row",
+        "n_back_row",
+        "n_camera_side",
+        "n_opposite_side",
+        "hands_above_head_count",
+        "n_pose_instances_raw",
+    }
+)
+
+
+def active_feature_columns(feature_subset: str) -> list[str]:
+    """``all`` = base + Chunk 1 spatial; ``base`` = original seven."""
+    s = feature_subset.strip().lower()
+    if s == "all":
+        return list(FEATURE_COLUMNS)
+    if s == "base":
+        return list(FEATURE_COLUMNS_BASE)
+    raise ValueError(f"feature_subset must be 'all' or 'base', got {feature_subset!r}")
+
+
+def float_fillna_cols_for_features(cols: list[str]) -> list[str]:
+    return [c for c in cols if c not in INTEGER_FEATURE_COLUMNS]

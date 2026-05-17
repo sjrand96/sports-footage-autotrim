@@ -1,6 +1,6 @@
 # Feature pipeline plan
 
-Working spec for feature extraction on S3, modular models, and AWS workers. Supersedes experimental flows in `cv-pipeline/simplified_e2e_flow/` and `cv-pipeline/pose-based-feature-extraction/` (remove after parity).
+Working spec for feature extraction on S3, modular models, and AWS workers. Replaces the former `cv-pipeline/simplified_e2e_flow/` and `cv-pipeline/pose-based-feature-extraction/` experiments (removed).
 
 ---
 
@@ -28,7 +28,8 @@ feature_extraction/          # Extract + label join + S3 upload
   latents/                   # PLACEHOLDER — CNN latents later (README only)
 
 models/                      # One subfolder per model family
-  tabular_xgb/               # Pooled XGBoost (moved from simplified_e2e_flow cache trainer)
+  tabular_xgb/               # Pooled XGBoost on feature_extraction runs
+    train.py
     README.md
 
 eval/                        # PLACEHOLDER — teammate-owned eval tool
@@ -36,8 +37,6 @@ eval/                        # PLACEHOLDER — teammate-owned eval tool
 ```
 
 **Unchanged:** `cv-pipeline/calibration/`, `cv-pipeline/pose-detection/`, `src/db.py`, `data_labeling/`, annotation/S3 docs.
-
-**Remove when parity:** `cv-pipeline/simplified_e2e_flow/`, `cv-pipeline/pose-based-feature-extraction/`.
 
 ---
 
@@ -197,9 +196,9 @@ Use `job_type` or separate projects (`feature-extraction`, `tabular-xgb`). Every
 |-------|-------------|
 | **1** | `feature_extraction/` package: core, `clip_split.py` (random placeholder), full-fps extract, local parquet + manifest + run report |
 | **2** | S3 upload + `timings.json` sidecar (`--upload-s3`, `--upload-only`) |
-| **3** | `models/tabular_xgb/`; remove training from any extract path |
-| **4** | Dockerfile + Fargate; driver for multi-clip |
-| **5** | Delete `simplified_e2e_flow/`, `pose-based-feature-extraction/` |
+| **3** | Done — `models/tabular_xgb/train.py` (train on `train/`, eval on `test/`; labels in parquet) |
+| **4** | Deferred — Dockerfile + Fargate; driver for multi-clip |
+| **5** | Done — removed legacy `simplified_e2e_flow/`, `pose-based-feature-extraction/` |
 | **Later** | W&B artifacts; Batch / Step Functions; `clips_v2`; `--write-frames`; latents; eval + `model_prediction_outputs/` |
 
 ---
