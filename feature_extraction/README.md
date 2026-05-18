@@ -2,7 +2,7 @@
 
 Per-frame pose + homography features → parquets under `{out_dir}/{run_id}/train|test/`.
 
-See [PLAN.md](PLAN.md) for architecture. Train/test assignment: **`clip_split.py`**.
+See [PLAN.md](PLAN.md) for architecture. AWS deploy: **[CLOUD_DEPLOY.md](CLOUD_DEPLOY.md)**. Train/test assignment: **`clip_split.py`**.
 
 ## Local run
 
@@ -98,3 +98,16 @@ Train on the extract-time split (`train/` + `test/` parquets; `is_playing` is al
 ```
 
 Requires at least one parquet in **both** `train/` and `test/` (use a multi-clip run or adjust `clip_split.py`).
+
+## Container (Step 1 — local Docker)
+
+From repo root (`yolov8s-pose.pt` must exist; Docker Desktop running):
+
+```bash
+docker build -f feature_extraction/Dockerfile -t fe-worker .
+docker run --rm --env-file .env fe-worker \
+  feature_extraction/job.py \
+  --out-dir /tmp/fe --clip-id 64 --max-frames 60 --upload-s3 --run-id docker_smoke_60f
+```
+
+See [CLOUD_DEPLOY.md](CLOUD_DEPLOY.md) for full benchmark steps.

@@ -24,7 +24,9 @@ feature_extraction/          # Extract + label join + S3 upload
   manifest.py                # Build/finalize run manifest (incl. run_report)
   timing.py                  # timings.json sidecar + per-clip stage timers
   s3_layout.py               # S3 path helpers
-  Dockerfile                 # Fargate image (phase 4)
+  Dockerfile                 # Extract worker image (see CLOUD_DEPLOY.md)
+  requirements-worker.txt    # Slim deps for container
+  CLOUD_DEPLOY.md            # AWS deployment + benchmark steps
   latents/                   # PLACEHOLDER — CNN latents later (README only)
 
 models/                      # One subfolder per model family
@@ -164,16 +166,7 @@ Teammate-owned. Will read `model_prediction_outputs/{run_id}/`. README only for 
 
 ## AWS
 
-| Layer | v1 | Later |
-|--------|-----|--------|
-| **Worker** | **ECS Fargate** — one container image; typically **one task per clip** | **AWS Batch** — same image, queue many clips |
-| **Orchestration** | Driver script: list clips → `RunTask` per clip → poll → finalize manifest | **Step Functions Map** when fan-out/retries need structure |
-
-**Recommendation:** Fargate per clip + thin driver (local, CI, or CodeBuild). Add Batch when parallel clip count is painful. Step Functions only when retries/DLQ/workflow visibility are worth it.
-
-Batch later: same Docker image and entrypoint; scheduler swap only.
-
-**Env (task):** Supabase credentials, S3 bucket/region, optional W&B API key, `run_id`, clip id, split.
+Cloud extract: **[CLOUD_DEPLOY.md](CLOUD_DEPLOY.md)** (container → ECR → Fargate CPU benchmark → GPU if needed). One ECS task runs `job.py` for one or more clips; `timings.json` on S3 is the benchmark artifact.
 
 ---
 
@@ -197,7 +190,7 @@ Use `job_type` or separate projects (`feature-extraction`, `tabular-xgb`). Every
 | **1** | `feature_extraction/` package: core, `clip_split.py` (random placeholder), full-fps extract, local parquet + manifest + run report |
 | **2** | S3 upload + `timings.json` sidecar (`--upload-s3`, `--upload-only`) |
 | **3** | Done — `models/tabular_xgb/train.py` (train on `train/`, eval on `test/`; labels in parquet) |
-| **4** | Deferred — Dockerfile + Fargate; driver for multi-clip |
+| **4** | [CLOUD_DEPLOY.md](CLOUD_DEPLOY.md) — container, ECR, Fargate CPU; GPU path if benchmark fails |
 | **5** | Done — removed legacy `simplified_e2e_flow/`, `pose-based-feature-extraction/` |
 | **Later** | W&B artifacts; Batch / Step Functions; `clips_v2`; `--write-frames`; latents; eval + `model_prediction_outputs/` |
 
