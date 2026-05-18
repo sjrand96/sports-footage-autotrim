@@ -39,6 +39,14 @@ def timings_key(run_id: str) -> str:
     return f"{feature_extraction_prefix(run_id)}/timings.json"
 
 
+def clip_timing_key(run_id: str, clip_id: int) -> str:
+    return f"{feature_extraction_prefix(run_id)}/_clips/{clip_id}/timing.json"
+
+
+def clip_timings_prefix(run_id: str) -> str:
+    return f"{feature_extraction_prefix(run_id)}/_clips/"
+
+
 def s3_uri(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{key}"
 
@@ -65,3 +73,7 @@ def local_run_report_path(out_dir: Path, run_id: str) -> Path:
 
 def local_timings_path(out_dir: Path, run_id: str) -> Path:
     return local_run_dir(out_dir, run_id) / "timings.json"
+
+
+def local_clip_timing_path(out_dir: Path, run_id: str, clip_id: int) -> Path:
+    return local_run_dir(out_dir, run_id) / "_clips" / str(clip_id) / "timing.json"

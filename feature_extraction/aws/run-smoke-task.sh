@@ -4,7 +4,7 @@ set -euo pipefail
 
 AWS_REGION="${AWS_REGION:-us-west-2}"
 CLUSTER="${CLUSTER:-default}"
-TASK_DEFINITION="${TASK_DEFINITION:-default-sports-footage-fe-worker-e01e:1}"
+TASK_DEFINITION="${TASK_DEFINITION:-default-sports-footage-fe-worker-e01e}"
 SUBNET="${SUBNET:-subnet-00f575df9d041d3ab}"
 SECURITY_GROUP="${SECURITY_GROUP:-sg-0b23a01f27c7eaf2c}"
 CLIP_ID="${CLIP_ID:-64}"

@@ -84,7 +84,42 @@ Re-push after every extractor change you want to benchmark in AWS.
 
 ## Step 3 — Fargate (CPU)
 
-One ECS **task** runs `job.py` for one or more clips in a single process (manifest/timings written once at end). Start with **one clip**; scale to `--max-clips N` in the same task before fan-out.
+**Smoke / single clip:** one `run-task` (see `aws/run-smoke-task.sh`).
+
+**Production-shaped runs:** **one ECS task per clip**, parallelized by `aws/run_fanout.py` (see §3f). Do **not** run all clips in one long task (disk fills with MP4s).
+
+### 3f — Parallel fan-out (one task per clip)
+
+Driver (laptop) plans split once, starts N Fargate workers, merges per-clip timing shards into `timings.json` + `manifest.json`.
+
+```bash
+# 1. Re-push amd64 image after code changes
+./feature_extraction/aws/push-image.sh
+
+# 2. Plan only (lists clips + train/test)
+.venv/bin/python feature_extraction/aws/run_fanout.py --plan-only --max-clips 5 --run-id my_parallel_run
+
+# 3. Start workers + wait + finalize (uploads merged manifest/timings to S3)
+.venv/bin/python feature_extraction/aws/run_fanout.py --start-only --run-id my_parallel_run
+
+# Or plan + start + finalize in one command:
+.venv/bin/python feature_extraction/aws/run_fanout.py --max-clips 5 --run-id my_parallel_run --concurrency 3
+```
+
+Each worker runs:
+
+`job.py --clip-id … --force-split train|test --upload-s3 --upload-parquet-only --delete-local-clip-after`
+
+Per-clip timings land at `s3://…/feature_extraction/{run_id}/_clips/{clip_id}/timing.json`.  
+Final merge → `timings.json` (rollup + `mean_sec_per_frame_extract`).
+
+Worker flags (also usable in manual `run-task`):
+
+| Flag | Purpose |
+|------|---------|
+| `--force-split train\|test` | Split from driver plan (one clip per task) |
+| `--upload-parquet-only` | Do not overwrite run-level manifest/timings on S3 |
+| `--delete-local-clip-after` | Delete MP4 after extract (bounded ephemeral disk) |
 
 ### 3a — IAM (task role)
 
@@ -107,7 +142,7 @@ Execution role: `AmazonECSTaskExecutionRolePolicy` (pull ECR, write CloudWatch L
 | Launch type | Fargate |
 | CPU / memory | **4 vCPU / 8 GB** (adjust after first benchmark) |
 | Platform | **LINUX / X86_64** |
-| Ephemeral storage | 20–50 GB (one clip + temp; increase if many clips per task) |
+| Ephemeral storage | 20 GB default (one clip per task is enough with `--delete-local-clip-after`) |
 | Logs | `awslogs` → CloudWatch log group |
 
 **Environment (task):**
@@ -211,4 +246,5 @@ Fargate cannot run GPU. Reuse the **same** `job.py` and image layout; swap runti
 - [ ] ECS cluster + task definition + task role
 - [ ] Fargate smoke 60 frames → S3 `timings.json`
 - [ ] Fargate one full clip → record `sec_per_frame`
+- [ ] Parallel fan-out 2+ clips → merged `timings.json` on S3
 - [ ] (If needed) more vCPU, then GPU Step 4

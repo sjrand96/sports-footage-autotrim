@@ -165,6 +165,24 @@ Compare `sec_per_frame` to Docker and local runs.
 
 ---
 
+## Parallel runs (many clips)
+
+Your **IAM user** (e.g. `volleyball-pipeline`) needs `ecs:RunTask` + `iam:PassRole` on `fe-worker-ecs-task`. Attach inline policy from:
+
+`feature_extraction/aws/iam-user-fanout-policy.json`
+
+(IAM → Users → your user → Add permissions → Create inline policy → JSON.)
+
+```bash
+./feature_extraction/aws/push-image.sh
+.venv/bin/python feature_extraction/aws/run_fanout.py --max-clips 5 --run-id my_run --concurrency 3
+aws s3 cp s3://sports-footage-autotrim-bucket/feature_extraction/my_run/timings.json -
+```
+
+See [../CLOUD_DEPLOY.md](../CLOUD_DEPLOY.md) §3f.
+
+---
+
 ## After code changes
 
 1. `./feature_extraction/aws/push-image.sh` → new `:gitsha` tag  

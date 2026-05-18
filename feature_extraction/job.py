@@ -46,6 +46,7 @@ from feature_extraction.manifest import (  # noqa: E402
 )
 from feature_extraction.s3_layout import (  # noqa: E402
     default_bucket,
+    local_clip_timing_path,
     local_manifest_path,
     local_parquet_path,
     local_run_dir,
@@ -56,6 +57,7 @@ from feature_extraction.s3_layout import (  # noqa: E402
 from feature_extraction.timing import (  # noqa: E402
     ClipTimer,
     build_timings_document,
+    clip_entries_from_run_report,
     derived_timing_metrics,
     log_clip_timing,
     timing_summary_for_manifest,
@@ -118,6 +120,7 @@ def process_one_clip(
     write_frames: bool,
     max_frames: int | None,
     bucket: str,
+    delete_local_clip_after: bool = False,
 ) -> ClipSuccess:
     stem = clip_stem(spec.source_id, spec.clip_index)
     out_path = local_parquet_path(out_dir, run_id, split, stem)
@@ -198,6 +201,11 @@ def process_one_clip(
         n_source_frames=int(video_meta["n_source_frames"]),
     )
     log_clip_timing(success, log=logger)
+
+    if delete_local_clip_after and local_video.is_file():
+        local_video.unlink()
+        logger.info("deleted local clip %s", local_video)
+
     return success
 
 
@@ -302,6 +310,7 @@ def finalize_run_artifacts(
     specs_by_stem: dict[str, ClipSpec],
     run_started_at: datetime,
     max_frames: int | None,
+    upload_parquet_only: bool = False,
 ) -> RunReport:
     """Write manifest/run_report/timings locally; optionally upload to S3 (parquets then sidecars)."""
     run_path = local_run_dir(out_dir, run_id)
@@ -357,12 +366,35 @@ def finalize_run_artifacts(
         label_fps=label_fps,
         extra=manifest_extra or None,
     )
-    write_run_report(report_path, run_report)
-    write_manifest(manifest_path, manifest)
-    logger.info("wrote manifest %s", manifest_path)
-    logger.info("wrote run_report %s", report_path)
+    if not upload_parquet_only:
+        write_run_report(report_path, run_report)
+        write_manifest(manifest_path, manifest)
+        logger.info("wrote manifest %s", manifest_path)
+        logger.info("wrote run_report %s", report_path)
 
-    if upload_s3 and parquet_upload is not None:
+    clip_entries = clip_entries_from_run_report(run_report)
+    for entry in clip_entries:
+        shard = {
+            "run_id": run_id,
+            "clips": [entry],
+        }
+        shard_path = local_clip_timing_path(out_dir, run_id, int(entry["clip_id"]))
+        shard_path.parent.mkdir(parents=True, exist_ok=True)
+        shard_path.write_text(json.dumps(shard, indent=2) + "\n", encoding="utf-8")
+
+    if upload_s3 and upload_parquet_only and clip_entries:
+        from feature_extraction.finalize_run import upload_clip_timing_shards
+        from feature_extraction.s3_upload import get_s3_client
+
+        upload_clip_timing_shards(
+            get_s3_client(region),
+            bucket=bucket,
+            run_id=run_id,
+            clip_entries=clip_entries,
+        )
+        logger.info("uploaded %d clip timing shard(s) to S3", len(clip_entries))
+
+    if upload_s3 and parquet_upload is not None and not upload_parquet_only:
         from feature_extraction.s3_layout import manifest_key, timings_key
         from feature_extraction.s3_upload import get_s3_client, upload_file
 
@@ -400,7 +432,10 @@ def finalize_run_artifacts(
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Extract per-frame features to local run directory.")
+    p = argparse.ArgumentParser(
+        description="Extract per-frame features to local run directory.",
+        allow_abbrev=False,
+    )
     p.add_argument("--out-dir", type=Path, required=True, help="Local root for feature_extraction/{run_id}/")
     p.add_argument("--run-id", type=str, default=None, help="Override run id (default: new timestamp+uuid)")
     p.add_argument("--clip-id", type=int, action="append", default=None, help="Supabase clips.id (repeatable)")
@@ -439,6 +474,22 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=f"S3 bucket (default: $S3_BUCKET or {default_bucket()})",
     )
+    p.add_argument(
+        "--force-split",
+        choices=("train", "test"),
+        default=None,
+        help="Force train/test partition (parallel workers; one clip per task).",
+    )
+    p.add_argument(
+        "--upload-parquet-only",
+        action="store_true",
+        help="Upload parquets + per-clip timing shards only (no manifest/timings overwrite).",
+    )
+    p.add_argument(
+        "--delete-local-clip-after",
+        action="store_true",
+        help="Remove downloaded MP4 after successful extract (saves ephemeral disk).",
+    )
     return p.parse_args()
 
 
@@ -460,6 +511,9 @@ def main() -> int:
         args.upload_s3 = True
     if args.test_fraction <= 0 or args.test_fraction >= 1:
         logger.error("--test-fraction must be in (0, 1)")
+        return 1
+    if args.force_split and args.clip_id and len(args.clip_id) > 1:
+        logger.error("--force-split with multiple --clip-id values is not supported")
         return 1
 
     bucket = args.bucket or default_bucket()
@@ -495,6 +549,7 @@ def main() -> int:
             specs_by_stem=specs_by_stem,
             run_started_at=run_started_at,
             max_frames=args.max_frames,
+            upload_parquet_only=args.upload_parquet_only,
         )
         print_run_summary(run_report)
         return 0 if run_report.n_failed == 0 else 1
@@ -516,15 +571,31 @@ def main() -> int:
         logger.error("no eligible clips to process")
         return 1
 
-    train_clips, test_clips, split_meta = assign_train_test(
-        specs,
-        test_fraction=args.test_fraction,
-        seed=args.split_seed,
-    )
-    split_by_id = _clip_split_map(train_clips, test_clips)
+    if args.force_split:
+        if len(specs) != 1:
+            logger.error("--force-split requires exactly one --clip-id per task (use run_fanout.py for many clips)")
+            return 1
+        forced: SplitName = args.force_split  # type: ignore[assignment]
+        split_by_id = {specs[0].clip_id: forced}
+        split_meta = {
+            "split_method": "worker_cli",
+            "split_seed": int(args.split_seed),
+            "test_fraction": float(args.test_fraction),
+            "train_clip_ids": [specs[0].clip_id] if forced == "train" else [],
+            "test_clip_ids": [specs[0].clip_id] if forced == "test" else [],
+        }
+    else:
+        train_clips, test_clips, split_meta = assign_train_test(
+            specs,
+            test_fraction=args.test_fraction,
+            seed=args.split_seed,
+        )
+        split_by_id = _clip_split_map(train_clips, test_clips)
 
+    n_train = sum(1 for v in split_by_id.values() if v == "train")
+    n_test = sum(1 for v in split_by_id.values() if v == "test")
     logger.info("run_id=%s", run_id)
-    logger.info("eligible clips: %d (train=%d test=%d)", len(specs), len(train_clips), len(test_clips))
+    logger.info("eligible clips: %d (train=%d test=%d)", len(specs), n_train, n_test)
     for s in specs:
         logger.info("  %s_%03d clip_id=%d -> %s", s.source_id, s.clip_index, s.clip_id, split_by_id[s.clip_id])
 
@@ -552,6 +623,7 @@ def main() -> int:
                 write_frames=args.write_frames,
                 max_frames=args.max_frames,
                 bucket=bucket,
+                delete_local_clip_after=args.delete_local_clip_after,
             )
             run_report.successes.append(success)
         except FileNotFoundError as exc:
@@ -580,6 +652,7 @@ def main() -> int:
         specs_by_stem=specs_by_stem,
         run_started_at=run_started_at,
         max_frames=args.max_frames,
+        upload_parquet_only=args.upload_parquet_only,
     )
 
     print_run_summary(run_report)

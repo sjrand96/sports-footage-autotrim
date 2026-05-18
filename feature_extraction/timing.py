@@ -39,6 +39,17 @@ def derived_timing_metrics(*, extract_sec: float, n_rows: int) -> dict[str, floa
     }
 
 
+def clip_timing_failure_entry(failure: ClipFailure) -> dict[str, Any]:
+    return {
+        "clip_id": failure.clip_id,
+        "source_id": failure.source_id,
+        "clip_index": failure.clip_index,
+        "status": "failed",
+        "failed_stage": failure.stage,
+        "error": failure.error,
+    }
+
+
 def clip_timing_entry(success: ClipSuccess) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "clip_id": success.clip_id,
@@ -56,6 +67,12 @@ def clip_timing_entry(success: ClipSuccess) -> dict[str, Any]:
     return entry
 
 
+def clip_entries_from_run_report(run_report: RunReport) -> list[dict[str, Any]]:
+    clips: list[dict[str, Any]] = [clip_timing_entry(s) for s in run_report.successes]
+    clips.extend(clip_timing_failure_entry(f) for f in run_report.failures)
+    return clips
+
+
 def build_timings_document(
     *,
     run_id: str,
@@ -64,19 +81,9 @@ def build_timings_document(
     finished_at: datetime,
     max_frames: int | None,
     upload_sec: float | None = None,
+    clip_entries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    clips: list[dict[str, Any]] = [clip_timing_entry(s) for s in run_report.successes]
-    for f in run_report.failures:
-        clips.append(
-            {
-                "clip_id": f.clip_id,
-                "source_id": f.source_id,
-                "clip_index": f.clip_index,
-                "status": "failed",
-                "failed_stage": f.stage,
-                "error": f.error,
-            }
-        )
+    clips = clip_entries if clip_entries is not None else clip_entries_from_run_report(run_report)
 
     totals: dict[str, float] = {}
     for key in ("download", "calibration", "extract", "frames_upload", "labels", "parquet_write", "clip_total"):
@@ -107,13 +114,46 @@ def build_timings_document(
         "clips": clips,
         "totals_sec": totals,
     }
+    n_ok = sum(1 for c in clips if c.get("status") == "ok")
+    n_failed = sum(1 for c in clips if c.get("status") == "failed")
     if extract_times:
         doc["summary"] = {
             "mean_sec_per_frame_extract": round(sum(extract_times) / len(extract_times), 6),
-            "n_clips_ok": len(run_report.successes),
-            "n_clips_failed": len(run_report.failures),
+            "n_clips_ok": n_ok,
+            "n_clips_failed": n_failed,
+        }
+    elif clips:
+        doc["summary"] = {
+            "n_clips_ok": n_ok,
+            "n_clips_failed": n_failed,
         }
     return doc
+
+
+def merge_clip_timing_shards(
+    shards: list[dict[str, Any]],
+    *,
+    run_id: str,
+    started_at: datetime,
+    finished_at: datetime,
+    max_frames: int | None,
+    upload_sec: float | None = None,
+) -> dict[str, Any]:
+    """Build run-level ``timings.json`` from per-clip worker shards."""
+    clips: list[dict[str, Any]] = []
+    for shard in shards:
+        clips.extend(shard.get("clips") or [])
+    clips.sort(key=lambda c: (c.get("clip_id", 0), c.get("clip_index", 0)))
+    empty = RunReport()
+    return build_timings_document(
+        run_id=run_id,
+        run_report=empty,
+        started_at=started_at,
+        finished_at=finished_at,
+        max_frames=max_frames,
+        upload_sec=upload_sec,
+        clip_entries=clips,
+    )
 
 
 def timing_summary_for_manifest(timings_doc: dict[str, Any]) -> dict[str, Any]:
