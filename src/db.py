@@ -1,5 +1,5 @@
 """Supabase helpers used by `data_labeling/ingest_youtube_source.py`, `data_labeling/push_timeline_annotation.py`,
-`data_labeling/push_court_calibration.py`, calibration review / pose scripts, and `simplified_e2e_flow/simple_e2e_pipeline.py`."""
+`data_labeling/push_court_calibration.py`, calibration review / pose scripts, and `feature_extraction/job.py`."""
 
 from __future__ import annotations
 

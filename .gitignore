@@ -1,7 +1,9 @@
 data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
-cv-pipeline/simplified_e2e_flow/cache/
+feature_extraction/_runs/
+cv-pipeline/pose-detection/media/clips_v2/
+wandb/
 .DS_Store
 yolov8s-pose.pt
 
