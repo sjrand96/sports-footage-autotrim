@@ -3,6 +3,7 @@ video-editor/node_modules/
 video-editor/.vite/deps/
 feature_extraction/_runs/
 cv-pipeline/pose-detection/media/clips_v2/
+wandb/
 .DS_Store
 yolov8s-pose.pt
 

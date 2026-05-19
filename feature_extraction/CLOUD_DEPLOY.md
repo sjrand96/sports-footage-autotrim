@@ -1,6 +1,6 @@
 # Cloud feature extraction deployment
 
-Run `feature_extraction/job.py` on AWS to benchmark extract throughput and produce the same S3 artifacts as local (`feature_extraction/{run_id}/`, `timings.json`). Train XGBoost locally or on a laptop — not on the extract worker.
+Run `feature_extraction/job.py` on AWS to benchmark extract throughput and produce the same S3 artifacts as local (`feature_extraction/{run_id}/`, `timings.json`). Train XGBoost locally or on a laptop — not on the extract worker. Optional experiment tracking: **[WANDB.md](WANDB.md)**.
 
 **Entrypoint:** `python feature_extraction/job.py` (same CLI as local).
 
@@ -110,6 +110,8 @@ Driver (laptop) plans split once, starts N Fargate workers, merges per-clip timi
 
 # Finalize only when all parquets are on S3 but manifest/timings were never merged:
 .venv/bin/python feature_extraction/aws/run_fanout.py --run-id my_parallel_run --finalize-only
+
+# W&B (optional): --wandb-publish / --no-wandb-publish; see feature_extraction/WANDB.md
 ```
 
 Each worker runs:

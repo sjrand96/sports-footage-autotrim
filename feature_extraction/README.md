@@ -2,7 +2,7 @@
 
 Per-frame pose + homography features → parquets under `{out_dir}/{run_id}/train|test/`.
 
-See [PLAN.md](PLAN.md) for architecture. AWS deploy: **[CLOUD_DEPLOY.md](CLOUD_DEPLOY.md)**. Train/test assignment: **`clip_split.py`**.
+See [PLAN.md](PLAN.md) for architecture. AWS deploy: **[CLOUD_DEPLOY.md](CLOUD_DEPLOY.md)**. W&B tracking: **[WANDB.md](WANDB.md)**. Train/test assignment: **`clip_split.py`**.
 
 ## Local run
 

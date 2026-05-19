@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,11 @@ if str(REPO_ROOT) not in sys.path:
 from feature_extraction.core.feature_columns import (  # noqa: E402
     active_feature_columns,
     float_fillna_cols_for_features,
+)
+from feature_extraction.wandb_publish import (  # noqa: E402
+    FEATURE_ARTIFACT_NAME,
+    wandb_entity,
+    wandb_project,
 )
 
 _DEFAULT_RUNS_ROOT = REPO_ROOT / "feature_extraction" / "_runs"
@@ -68,6 +74,29 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--save-report-json", type=Path, default=None)
     p.add_argument("--save-model", type=Path, default=None, help="XGBoost model JSON/UBJ path.")
+    p.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Log training run to Weights & Biases (requires WANDB_API_KEY).",
+    )
+    p.add_argument(
+        "--wandb-project",
+        type=str,
+        default=None,
+        help=f"W&B project (default: WANDB_PROJECT or {wandb_project()})",
+    )
+    p.add_argument(
+        "--wandb-entity",
+        type=str,
+        default=None,
+        help=f"W&B entity (default: WANDB_ENTITY or {wandb_entity()})",
+    )
+    p.add_argument(
+        "--wandb-run-name",
+        type=str,
+        default=None,
+        help="Optional W&B run name (default: xgb-{feature_run_id}).",
+    )
     return p.parse_args()
 
 
@@ -124,6 +153,7 @@ def train_and_evaluate(
     feature_columns: list[str],
     args: argparse.Namespace,
     manifest: dict[str, Any],
+    wandb_run: Any | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame, XGBClassifier]:
     fill_cols = float_fillna_cols_for_features(feature_columns)
 
@@ -151,9 +181,14 @@ def train_and_evaluate(
         tree_method="hist",
         scale_pos_weight=scale_pos_weight,
     )
-    model.fit(X_train.to_numpy(dtype=np.float32), y_train)
-    y_pred = model.predict(X_test.to_numpy(dtype=np.float32)).astype(int)
-    y_prob = model.predict_proba(X_test.to_numpy(dtype=np.float32))[:, 1]
+
+    X_train_np = X_train.to_numpy(dtype=np.float32)
+    X_test_np = X_test.to_numpy(dtype=np.float32)
+
+    model.fit(X_train_np, y_train)
+
+    y_pred = model.predict(X_test_np).astype(int)
+    y_prob = model.predict_proba(X_test_np)[:, 1]
 
     acc = float(accuracy_score(y_test, y_pred))
     prec = float(precision_score(y_test, y_pred, zero_division=0))
@@ -191,13 +226,57 @@ def train_and_evaluate(
         },
     }
 
+    if wandb_run is not None:
+        import wandb
+
+        wandb_run.log(
+            {
+                "test/accuracy": acc,
+                "test/precision": prec,
+                "test/recall": rec,
+                "test/f1": f1,
+            }
+        )
+        wandb_run.log(
+            {
+                "test/confusion_matrix": wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=y_test.tolist(),
+                    preds=y_pred.tolist(),
+                    class_names=["downtime", "playing"],
+                )
+            }
+        )
+
     test_out = test_df[["source_id", "clip_index", "clip_key", "frame_idx", "timestamp_sec", "is_playing"]].copy()
     test_out["pred_playing"] = y_pred.astype(bool)
     test_out["pred_prob_playing"] = y_prob.astype(float)
     return report, test_out, model
 
 
+def _log_model_artifact(wandb_run: Any, model: XGBClassifier, *, feature_run_id: str) -> None:
+    import wandb
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "xgb_model.json"
+        model.save_model(str(path))
+        artifact = wandb.Artifact(
+            name=f"xgb-playing-{feature_run_id}",
+            type="model",
+            description="XGBClassifier for is_playing",
+        )
+        artifact.add_file(str(path), name="model.json")
+        wandb_run.log_artifact(artifact)
+
+
 def main() -> int:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(REPO_ROOT / ".env")
+    except ImportError:
+        pass
+
     args = parse_args()
     run_dir = resolve_run_dir(args)
     feature_columns = active_feature_columns(args.feature_subset)
@@ -206,8 +285,49 @@ def main() -> int:
     if train_df.empty or test_df.empty:
         raise SystemExit("train or test split is empty; need parquets in both train/ and test/")
 
+    feature_run_id = str(manifest.get("run_id") or args.feature_run_id or run_dir.name)
+    wb_run: Any | None = None
+
+    if args.wandb:
+        import wandb
+
+        entity = args.wandb_entity or wandb_entity()
+        project = args.wandb_project or wandb_project()
+        run_name = args.wandb_run_name or f"xgb-{feature_run_id}"
+
+        wb_run = wandb.init(
+            entity=entity,
+            project=project,
+            job_type="train",
+            name=run_name,
+            tags=["xgboost", "playing-detection"],
+            config={
+                "feature_run_id": feature_run_id,
+                "feature_subset": args.feature_subset,
+                "n_estimators": args.n_estimators,
+                "max_depth": args.max_depth,
+                "learning_rate": args.learning_rate,
+                "subsample": args.subsample,
+                "colsample_bytree": args.colsample_bytree,
+                "random_seed": args.random_seed,
+                "extractor_version": manifest.get("extractor_version"),
+                "feature_schema_version": manifest.get("feature_schema_version"),
+                "split_method": manifest.get("split_method"),
+            },
+        )
+        try:
+            artifact = wb_run.use_artifact(f"{FEATURE_ARTIFACT_NAME}:{feature_run_id}", type="dataset")
+            wb_run.config.update({"input_feature_artifact": artifact.qualified_name})
+        except Exception as exc:  # noqa: BLE001
+            wandb.termwarn(f"could not link input artifact {FEATURE_ARTIFACT_NAME}:{feature_run_id}: {exc}")
+
     report, test_preds, model = train_and_evaluate(
-        train_df, test_df, feature_columns=feature_columns, args=args, manifest=manifest
+        train_df,
+        test_df,
+        feature_columns=feature_columns,
+        args=args,
+        manifest=manifest,
+        wandb_run=wb_run,
     )
 
     print("=== Tabular XGBoost (feature-extraction run) ===")
@@ -240,6 +360,10 @@ def main() -> int:
         args.save_model.parent.mkdir(parents=True, exist_ok=True)
         model.save_model(str(args.save_model))
         print(f"saved model: {args.save_model}")
+
+    if wb_run is not None:
+        _log_model_artifact(wb_run, model, feature_run_id=feature_run_id)
+        wb_run.finish()
 
     return 0
 

@@ -164,6 +164,7 @@ def finalize_run_from_plan(
     region: str | None = None,
     label_fps: float = 30.0,
     upload_s3: bool = True,
+    publish_wandb: bool | None = None,
 ) -> tuple[RunReport, dict[str, Any]]:
     """Write merged manifest/run_report/timings locally; upload sidecars to S3."""
     from feature_extraction.s3_layout import default_region
@@ -246,6 +247,26 @@ def finalize_run_from_plan(
             bucket=bkt,
             key=timings_key(run_id),
         )
+
+    from feature_extraction.wandb_publish import maybe_publish_feature_run_artifact
+
+    wandb_artifact = maybe_publish_feature_run_artifact(
+        run_id=run_id,
+        manifest=manifest,
+        out_dir=out_dir,
+        bucket=bkt,
+        publish=publish_wandb,
+    )
+    if wandb_artifact:
+        manifest["wandb_feature_artifact"] = wandb_artifact
+        write_manifest(local_manifest_path(out_dir, run_id), manifest)
+        if upload_s3:
+            upload_file(
+                client=client,
+                local_path=local_manifest_path(out_dir, run_id),
+                bucket=bkt,
+                key=manifest_key(run_id),
+            )
 
     return run_report, manifest
 

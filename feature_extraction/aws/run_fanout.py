@@ -403,18 +403,22 @@ def _finalize_plan(
     region: str,
     label_fps: float,
     plan_path: Path,
+    wandb_publish: bool | None,
 ) -> int:
     plan = enrich_plan_from_s3(plan, bucket=bucket, region=region)
     write_plan(plan_path, plan)
-    run_report, _ = finalize_run_from_plan(
+    run_report, manifest = finalize_run_from_plan(
         plan=plan,
         out_dir=out_dir,
         bucket=bucket,
         region=region,
         label_fps=label_fps,
         upload_s3=True,
+        publish_wandb=wandb_publish,
     )
     print_run_summary(run_report)
+    if manifest.get("wandb_feature_artifact"):
+        logger.info("wandb feature artifact: %s", manifest["wandb_feature_artifact"])
     return 0 if run_report.n_failed == 0 else 1
 
 
@@ -467,6 +471,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip clips that already have a parquet on S3 for this run_id; merge task history",
     )
+    p.add_argument(
+        "--wandb-publish",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Publish playing-features W&B artifact after finalize (default: on if WANDB_API_KEY set)",
+    )
     return p.parse_args()
 
 
@@ -499,6 +509,7 @@ def main() -> int:
             region=region,
             label_fps=float(plan.get("label_fps") or args.label_fps),
             plan_path=plan_path,
+            wandb_publish=args.wandb_publish,
         )
 
     if args.start_only:
@@ -515,6 +526,7 @@ def main() -> int:
                 region=region,
                 label_fps=float(plan.get("label_fps") or args.label_fps),
                 plan_path=plan_path,
+                wandb_publish=args.wandb_publish,
             )
         validate_task_definition_image(
             task_definition=args.task_definition,
@@ -540,6 +552,7 @@ def main() -> int:
             region=region,
             label_fps=float(plan.get("label_fps") or args.label_fps),
             plan_path=plan_path,
+            wandb_publish=args.wandb_publish,
         )
 
     db_helpers, db_client = _get_db()
@@ -584,6 +597,7 @@ def main() -> int:
             region=region,
             label_fps=args.label_fps,
             plan_path=plan_path,
+            wandb_publish=args.wandb_publish,
         )
         print(f"\nS3: s3://{bucket}/{feature_extraction_prefix(run_id)}/")
         return rc
@@ -612,6 +626,7 @@ def main() -> int:
         region=region,
         label_fps=args.label_fps,
         plan_path=plan_path,
+        wandb_publish=args.wandb_publish,
     )
     print(f"\nS3: s3://{bucket}/{feature_extraction_prefix(run_id)}/")
     return rc
