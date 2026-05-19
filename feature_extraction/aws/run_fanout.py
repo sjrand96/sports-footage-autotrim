@@ -160,6 +160,55 @@ def load_plan(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _is_vcpu_quota_failure(failures: list[dict[str, Any]]) -> bool:
+    text = str(failures).lower()
+    return "vcpu" in text and "concurrently" in text
+
+
+def _parquet_on_s3(
+    s3: Any,
+    *,
+    bucket: str,
+    run_id: str,
+    clip: dict[str, Any],
+) -> bool:
+    stem = clip_stem(str(clip["source_id"]), int(clip["clip_index"]))
+    key = parquet_key(run_id, str(clip["split"]), stem)
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except Exception:
+        return False
+
+
+def pending_clips_for_resume(
+    plan: dict[str, Any],
+    *,
+    bucket: str,
+    region: str,
+) -> tuple[list[dict[str, Any]], int]:
+    """Clips in ``plan`` with no parquet yet on S3 for this ``run_id``."""
+    import boto3
+
+    s3 = boto3.client("s3", region_name=region)
+    run_id = str(plan["run_id"])
+    all_clips = list(plan["clips"])
+    pending = [c for c in all_clips if not _parquet_on_s3(s3, bucket=bucket, run_id=run_id, clip=c)]
+    return pending, len(all_clips) - len(pending)
+
+
+def merge_task_records(
+    existing: list[dict[str, Any]],
+    new: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_id: dict[int, dict[str, Any]] = {int(t["clip_id"]): t for t in existing if t.get("clip_id") is not None}
+    for t in new:
+        if t.get("clip_id") is None:
+            continue
+        by_id[int(t["clip_id"])] = t
+    return [by_id[k] for k in sorted(by_id)]
+
+
 def _worker_command(
     *,
     run_id: str,
@@ -196,13 +245,14 @@ def start_tasks(
     security_group: str,
     region: str,
     concurrency: int,
-) -> dict[str, Any]:
+    clips_to_run: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     import boto3
 
     ecs = boto3.client("ecs", region_name=region)
     run_id = plan["run_id"]
     max_frames = plan.get("max_frames")
-    pending = list(plan["clips"])
+    pending = list(clips_to_run if clips_to_run is not None else plan["clips"])
     finished: list[dict[str, Any]] = []
     running: dict[str, dict[str, Any]] = {}
 
@@ -237,17 +287,24 @@ def start_tasks(
             )
             failures = resp.get("failures") or []
             if failures:
-                logger.error("run_task failed clip_id=%s: %s", clip["clip_id"], failures)
-                finished.append(
-                    {
-                        "clip_id": clip["clip_id"],
-                        "task_arn": None,
-                        "exit_code": 1,
-                        "error": str(failures),
-                        "parquet_on_s3": False,
-                        "status": "STOPPED",
-                    }
-                )
+                if _is_vcpu_quota_failure(failures):
+                    logger.warning(
+                        "run_task deferred clip_id=%s (vCPU quota); will retry when a slot frees",
+                        clip["clip_id"],
+                    )
+                    pending.insert(0, clip)
+                else:
+                    logger.error("run_task failed clip_id=%s: %s", clip["clip_id"], failures)
+                    finished.append(
+                        {
+                            "clip_id": clip["clip_id"],
+                            "task_arn": None,
+                            "exit_code": 1,
+                            "error": str(failures),
+                            "parquet_on_s3": False,
+                            "status": "STOPPED",
+                        }
+                    )
                 continue
             task_arn = resp["tasks"][0]["taskArn"]
             logger.info("started clip_id=%s task=%s", clip["clip_id"], task_arn)
@@ -258,7 +315,10 @@ def start_tasks(
             }
 
         if not running:
-            break
+            if pending:
+                time.sleep(15)
+            else:
+                break
 
         time.sleep(15)
         desc = ecs.describe_tasks(cluster=cluster, tasks=list(running.keys()))
@@ -282,32 +342,104 @@ def start_tasks(
             finished.append(entry)
             del running[arn]
 
-    plan["tasks"] = finished
-    return plan
+    return finished
 
 
 def enrich_plan_from_s3(plan: dict[str, Any], *, bucket: str, region: str) -> dict[str, Any]:
     import boto3
 
     s3 = boto3.client("s3", region_name=region)
-    run_id = plan["run_id"]
-    by_id = {int(c["clip_id"]): c for c in plan["clips"]}
-
-    for task in plan.get("tasks") or []:
-        cid = int(task["clip_id"])
-        clip = by_id[cid]
-        stem = clip_stem(str(clip["source_id"]), int(clip["clip_index"]))
-        key = parquet_key(run_id, str(clip["split"]), stem)
-        task["parquet_on_s3"] = False
-        try:
-            s3.head_object(Bucket=bucket, Key=key)
-            task["parquet_on_s3"] = True
-        except Exception:
-            task["parquet_on_s3"] = False
-        if task.get("exit_code") is None:
-            task["exit_code"] = 1 if not task["parquet_on_s3"] else 0
-
+    run_id = str(plan["run_id"])
+    prev = {int(t["clip_id"]): t for t in plan.get("tasks") or [] if t.get("clip_id") is not None}
+    tasks: list[dict[str, Any]] = []
+    for clip in plan["clips"]:
+        cid = int(clip["clip_id"])
+        on_s3 = _parquet_on_s3(s3, bucket=bucket, run_id=run_id, clip=clip)
+        task = dict(prev.get(cid, {}))
+        task["clip_id"] = cid
+        task["parquet_on_s3"] = on_s3
+        if on_s3:
+            task["exit_code"] = 0
+            task.setdefault("status", "STOPPED")
+        elif task.get("exit_code") is None:
+            task["exit_code"] = 1
+        tasks.append(task)
+    plan["tasks"] = tasks
     return plan
+
+
+def _run_workers_and_merge_tasks(
+    plan: dict[str, Any],
+    *,
+    cluster: str,
+    task_definition: str,
+    container_name: str,
+    subnet: str,
+    security_group: str,
+    region: str,
+    concurrency: int,
+    clips_to_run: list[dict[str, Any]],
+) -> dict[str, Any]:
+    session_tasks = start_tasks(
+        plan,
+        cluster=cluster,
+        task_definition=task_definition,
+        container_name=container_name,
+        subnet=subnet,
+        security_group=security_group,
+        region=region,
+        concurrency=concurrency,
+        clips_to_run=clips_to_run,
+    )
+    plan["tasks"] = merge_task_records(plan.get("tasks") or [], session_tasks)
+    return plan
+
+
+def _finalize_plan(
+    plan: dict[str, Any],
+    *,
+    out_dir: Path,
+    bucket: str,
+    region: str,
+    label_fps: float,
+    plan_path: Path,
+) -> int:
+    plan = enrich_plan_from_s3(plan, bucket=bucket, region=region)
+    write_plan(plan_path, plan)
+    run_report, _ = finalize_run_from_plan(
+        plan=plan,
+        out_dir=out_dir,
+        bucket=bucket,
+        region=region,
+        label_fps=label_fps,
+        upload_s3=True,
+    )
+    print_run_summary(run_report)
+    return 0 if run_report.n_failed == 0 else 1
+
+
+def _resume_pending_or_log(
+    plan: dict[str, Any],
+    *,
+    bucket: str,
+    region: str,
+    resume: bool,
+) -> list[dict[str, Any]] | None:
+    """Return clips to run, or None if resume mode and every clip already has a parquet on S3."""
+    if not resume:
+        return list(plan["clips"])
+    pending, n_done = pending_clips_for_resume(plan, bucket=bucket, region=region)
+    total = len(plan["clips"])
+    logger.info(
+        "resume: %d/%d clips already on S3; %d to run",
+        n_done,
+        total,
+        len(pending),
+    )
+    if not pending:
+        logger.info("resume: nothing left to run")
+        return None
+    return pending
 
 
 def parse_args() -> argparse.Namespace:
@@ -330,6 +462,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--plan-only", action="store_true")
     p.add_argument("--start-only", action="store_true", help="Requires existing run_plan.json")
     p.add_argument("--finalize-only", action="store_true", help="Merge shards + upload manifest")
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip clips that already have a parquet on S3 for this run_id; merge task history",
+    )
     return p.parse_args()
 
 
@@ -355,30 +492,36 @@ def main() -> int:
             logger.error("plan not found: %s", plan_path)
             return 1
         plan = load_plan(plan_path)
-        plan = enrich_plan_from_s3(plan, bucket=bucket, region=region)
-        write_plan(plan_path, plan)
-        run_report, _ = finalize_run_from_plan(
-            plan=plan,
+        return _finalize_plan(
+            plan,
             out_dir=out_dir,
             bucket=bucket,
             region=region,
             label_fps=float(plan.get("label_fps") or args.label_fps),
-            upload_s3=True,
+            plan_path=plan_path,
         )
-        print_run_summary(run_report)
-        return 0 if run_report.n_failed == 0 else 1
 
     if args.start_only:
         if not plan_path.is_file():
             logger.error("plan not found: %s", plan_path)
             return 1
         plan = load_plan(plan_path)
+        clips_to_run = _resume_pending_or_log(plan, bucket=bucket, region=region, resume=args.resume)
+        if clips_to_run is None:
+            return _finalize_plan(
+                plan,
+                out_dir=out_dir,
+                bucket=bucket,
+                region=region,
+                label_fps=float(plan.get("label_fps") or args.label_fps),
+                plan_path=plan_path,
+            )
         validate_task_definition_image(
             task_definition=args.task_definition,
             container_name=args.container_name,
             region=region,
         )
-        plan = start_tasks(
+        plan = _run_workers_and_merge_tasks(
             plan,
             cluster=args.cluster,
             task_definition=args.task_definition,
@@ -387,19 +530,17 @@ def main() -> int:
             security_group=args.security_group,
             region=region,
             concurrency=args.concurrency,
+            clips_to_run=clips_to_run,
         )
-        plan = enrich_plan_from_s3(plan, bucket=bucket, region=region)
         write_plan(plan_path, plan)
-        run_report, _ = finalize_run_from_plan(
-            plan=plan,
+        return _finalize_plan(
+            plan,
             out_dir=out_dir,
             bucket=bucket,
             region=region,
             label_fps=float(plan.get("label_fps") or args.label_fps),
-            upload_s3=True,
+            plan_path=plan_path,
         )
-        print_run_summary(run_report)
-        return 0 if run_report.n_failed == 0 else 1
 
     db_helpers, db_client = _get_db()
     specs = list_eligible_clips(db_helpers, db_client)
@@ -423,19 +564,36 @@ def main() -> int:
         logger.info("  clip_id=%s %s_%03d -> %s", c["clip_id"], c["source_id"], c["clip_index"], c["split"])
 
     if args.plan_only:
+        if args.resume:
+            pending, n_done = pending_clips_for_resume(plan, bucket=bucket, region=region)
+            print(f"\nResume preview: {n_done}/{len(plan['clips'])} complete on S3, {len(pending)} would run")
         print(f"\nRun id: {run_id}")
         print(f"Plan:   {plan_path}")
         print(f"S3:     s3://{bucket}/{feature_extraction_prefix(run_id)}/")
         print("\nNext: re-push amd64 image if needed, then:")
-        print(f"  python feature_extraction/aws/run_fanout.py --run-id {run_id} --start-only")
+        print(f"  python feature_extraction/aws/run_fanout.py --run-id {run_id} --start-only --resume")
         return 0
+
+    clips_to_run = _resume_pending_or_log(plan, bucket=bucket, region=region, resume=args.resume)
+    if clips_to_run is None:
+        write_plan(plan_path, plan)
+        rc = _finalize_plan(
+            plan,
+            out_dir=out_dir,
+            bucket=bucket,
+            region=region,
+            label_fps=args.label_fps,
+            plan_path=plan_path,
+        )
+        print(f"\nS3: s3://{bucket}/{feature_extraction_prefix(run_id)}/")
+        return rc
 
     validate_task_definition_image(
         task_definition=args.task_definition,
         container_name=args.container_name,
         region=region,
     )
-    plan = start_tasks(
+    plan = _run_workers_and_merge_tasks(
         plan,
         cluster=args.cluster,
         task_definition=args.task_definition,
@@ -444,22 +602,19 @@ def main() -> int:
         security_group=args.security_group,
         region=region,
         concurrency=args.concurrency,
+        clips_to_run=clips_to_run,
     )
     write_plan(plan_path, plan)
-    plan = enrich_plan_from_s3(plan, bucket=bucket, region=region)
-    write_plan(plan_path, plan)
-
-    run_report, _ = finalize_run_from_plan(
-        plan=plan,
+    rc = _finalize_plan(
+        plan,
         out_dir=out_dir,
         bucket=bucket,
         region=region,
         label_fps=args.label_fps,
-        upload_s3=True,
+        plan_path=plan_path,
     )
-    print_run_summary(run_report)
     print(f"\nS3: s3://{bucket}/{feature_extraction_prefix(run_id)}/")
-    return 0 if run_report.n_failed == 0 else 1
+    return rc
 
 
 if __name__ == "__main__":

@@ -8,5 +8,6 @@ Python entrypoints for **human labeling workflows** (different Supabase tables p
 | [push_timeline_annotation.py](push_timeline_annotation.py) | Supabase, `ANNOTATOR_NAME` | [annotation_schema_and_systems.md](../docs/annotation_process/annotation_schema_and_systems.md) (W3) |
 | [push_court_calibration.py](push_court_calibration.py) | Supabase, `ANNOTATOR_NAME` | [court_calibration_supabase.md](../docs/annotation_process/court_calibration_supabase.md) |
 | [court_keypoints.py](court_keypoints.py) | — (parse only) | [label-studio-setup.md](../docs/annotation_process/label-studio-setup.md) (court project), [court_calibration_supabase.md](../docs/annotation_process/court_calibration_supabase.md) |
+| [labeling_inventory.py](labeling_inventory.py) | Supabase | — (read-only coverage summary) |
 
 Run from repo root, e.g. `python data_labeling/ingest_youtube_source.py '<youtube_url>'`. Shared DB helpers: [src/db.py](../src/db.py).

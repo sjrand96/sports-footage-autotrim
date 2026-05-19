@@ -104,6 +104,12 @@ Driver (laptop) plans split once, starts N Fargate workers, merges per-clip timi
 
 # Or plan + start + finalize in one command:
 .venv/bin/python feature_extraction/aws/run_fanout.py --max-clips 5 --run-id my_parallel_run --concurrency 3
+
+# Resume after a killed driver / partial run (skips clips that already have parquets on S3):
+.venv/bin/python feature_extraction/aws/run_fanout.py --run-id my_parallel_run --start-only --resume --concurrency 30
+
+# Finalize only when all parquets are on S3 but manifest/timings were never merged:
+.venv/bin/python feature_extraction/aws/run_fanout.py --run-id my_parallel_run --finalize-only
 ```
 
 Each worker runs:
