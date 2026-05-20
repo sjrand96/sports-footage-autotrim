@@ -1,0 +1,109 @@
+[
+  {
+    "schema_version": 1,
+    "kind": "court_keypoints_label_studio",
+    "source_id": "jZ18INu4LQc",
+    "clip_index": 12,
+    "frame": {
+      "s3_bucket": "sports-footage-autotrim-bucket",
+      "s3_key": "clips/jZ18INu4LQc/jZ18INu4LQc_012.jpg",
+      "width_px": 1920,
+      "height_px": 1080,
+      "label_studio_image_ref": "s3://sports-footage-autotrim-bucket/clips/jZ18INu4LQc/jZ18INu4LQc_012.jpg"
+    },
+    "label_studio": {
+      "task_id": 102,
+      "annotation_id": 22,
+      "project_id": 7,
+      "lead_time_sec": 162.321,
+      "created_at": "2026-05-05T19:45:13.516814Z",
+      "updated_at": "2026-05-05T19:45:13.516826Z"
+    },
+    "keypoints": [
+      {
+        "label": "centerline_left",
+        "x_pct": 17.445445627829837,
+        "y_pct": 68.33261057292289,
+        "x_px": 334.9526,
+        "y_px": 737.9922
+      },
+      {
+        "label": "centerline_right",
+        "x_pct": 80.8627013203252,
+        "y_pct": 68.2221018799322,
+        "x_px": 1552.5639,
+        "y_px": 736.7987
+      },
+      {
+        "label": "far_attack_left",
+        "x_pct": 23.03162805369396,
+        "y_pct": 65.19220192243604,
+        "x_px": 442.2073,
+        "y_px": 704.0758
+      },
+      {
+        "label": "far_attack_right",
+        "x_pct": 73.73130911554358,
+        "y_pct": 65.22450931449791,
+        "x_px": 1415.6411,
+        "y_px": 704.4247
+      },
+      {
+        "label": "far_baseline_left",
+        "x_pct": 29.54501439605569,
+        "y_pct": 61.73463334738193,
+        "x_px": 567.2643,
+        "y_px": 666.734
+      },
+      {
+        "label": "far_baseline_right",
+        "x_pct": 65.56519711720136,
+        "y_pct": 61.80850788812728,
+        "x_px": 1258.8518,
+        "y_px": 667.5319
+      },
+      {
+        "label": "near_attack_left",
+        "x_pct": 7.869428541314807,
+        "y_pct": 73.50126150263577,
+        "x_px": 151.093,
+        "y_px": 793.8136
+      },
+      {
+        "label": "near_attack_right",
+        "x_pct": 92.39495809105027,
+        "y_pct": 73.00168588325417,
+        "x_px": 1773.9832,
+        "y_px": 788.4182
+      },
+      {
+        "label": "net_post_base_left",
+        "x_pct": 11.053974327871941,
+        "y_pct": 68.25876741682626,
+        "x_px": 212.2363,
+        "y_px": 737.1947
+      },
+      {
+        "label": "net_post_base_right",
+        "x_pct": 88.35719410621728,
+        "y_pct": 67.95383545914513,
+        "x_px": 1696.4581,
+        "y_px": 733.9014
+      },
+      {
+        "label": "net_post_top_left",
+        "x_pct": 11.765291604959051,
+        "y_pct": 31.143351083755487,
+        "x_px": 225.8936,
+        "y_px": 336.3482
+      },
+      {
+        "label": "net_post_top_right",
+        "x_pct": 87.73619819897186,
+        "y_pct": 32.500272627512,
+        "x_px": 1684.535,
+        "y_px": 351.0029
+      }
+    ]
+  }
+]

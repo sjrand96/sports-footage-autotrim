@@ -1,7 +1,10 @@
 -- Sports Footage Autotrim — Database Schema (canonical DDL)
 --
--- Column semantics, S3 layout, and how prep/push use these tables:
+-- Column semantics, S3 layout, and how ingest_youtube_source / push_timeline_annotation / push_court_calibration use these tables:
 --   docs/annotation_process/annotation_schema_and_systems.md
+--
+-- Court calibration (homography) column contracts and workflow:
+--   docs/annotation_process/court_calibration_supabase.md
 --
 -- Run this in the Supabase SQL Editor on a fresh project to create all tables.
 -- Idempotent: safe to re-run; uses IF NOT EXISTS where possible.
@@ -25,7 +28,7 @@ create table if not exists source_videos (
   duration_sec    numeric,                      -- total length of the source video
   fps_original    numeric,                      -- fps of the original (before re-encode)
   downloaded_at   timestamptz not null default now(),
-  downloaded_by   text                          -- whoever ran the prep script
+  downloaded_by   text                          -- whoever ran ingest_youtube_source.py
 );
 
 -- ============================================================
@@ -75,9 +78,46 @@ create index if not exists annotations_annotator_idx on annotations (annotator);
 create index if not exists annotations_clip_annotator_idx on annotations (clip_id, annotator);
 
 -- ============================================================
+-- court_calibrations
+-- One row per source video: reference still + keypoints + fitted homography
+-- (world→image) and court bounds. Written by push_court_calibration.py (upsert on source_id).
+-- ============================================================
+
+create table if not exists court_calibrations (
+  source_id text primary key references source_videos(id) on delete cascade,
+
+  ref_image_s3_bucket text not null,
+  ref_image_s3_key text not null,
+  ref_image_width_px int not null check (ref_image_width_px > 0),
+  ref_image_height_px int not null check (ref_image_height_px > 0),
+  ref_clip_index int,                              -- thumbnail clip index when path is clips/{id}/{id}_NNN.jpg
+
+  keypoints jsonb not null,                        -- [{label, x_px, y_px}, ...] in ref image pixel space
+  homography_matrix jsonb not null,                -- 3×3 world→pixel (same role as H_world_to_pixel in npz)
+  world_wx_min numeric not null,
+  world_wx_max numeric not null,
+  world_wy_min numeric not null,
+  world_wy_max numeric not null,
+  pixels_per_metre numeric not null default 45,
+
+  label_studio_task_id bigint,
+  label_studio_annotation_id bigint,
+  label_studio_project_id bigint,
+  annotator text not null,
+
+  raw_label_studio_export jsonb,
+  schema_version smallint not null default 1,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists court_calibrations_updated_at_idx on court_calibrations (updated_at desc);
+
+-- ============================================================
 -- Verify
 -- ============================================================
 -- select table_name from information_schema.tables
 --   where table_schema = 'public'
 --   order by table_name;
--- Should return: annotations, clips, source_videos
+-- Should return: annotations, clips, court_calibrations, source_videos
