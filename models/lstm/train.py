@@ -10,6 +10,8 @@ Prerequisites::
 Re-run test evaluation only::
 
     python models/lstm/train.py --eval-only --device mps
+
+After training, writes ``loss_history.json`` and ``loss_curve.png`` under the checkpoint dir.
 """
 
 from __future__ import annotations
@@ -476,6 +478,40 @@ def _checkpoint_save_msg(metric: str, metrics: dict[str, float]) -> str:
     return f"recall={metrics['recall']:.4f} cost={metrics['cost']:.0f}"
 
 
+def save_loss_history(history: list[dict[str, Any]], path: Path) -> None:
+    path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+
+
+def plot_loss_curve(
+    history: list[dict[str, Any]],
+    path: Path,
+    *,
+    best_epoch: int | None = None,
+) -> None:
+    if not history:
+        return
+    import matplotlib.pyplot as plt
+
+    epochs = [int(h["epoch"]) for h in history]
+    train_loss = [float(h["train_loss"]) for h in history]
+    test_loss = [float(h["test_loss"]) for h in history]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_loss, label="train", marker="o", markersize=4)
+    ax.plot(epochs, test_loss, label="test", marker="o", markersize=4)
+    if best_epoch is not None and best_epoch in epochs:
+        ax.axvline(best_epoch, color="gray", linestyle="--", linewidth=1, label=f"best (epoch {best_epoch})")
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("Tversky loss")
+    ax.set_title("Training loss curve")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def train(
     *,
     epochs: int | None = None,
@@ -663,6 +699,7 @@ def train(
     best_cost = float("inf")
     best_epoch = -1
     epochs_without_improvement = 0
+    loss_history: list[dict[str, Any]] = []
 
     epoch_iter = tqdm(range(epochs), desc="epochs", disable=quiet)
     for epoch in epoch_iter:
@@ -707,6 +744,17 @@ def train(
             tversky_beta=tversky_beta,
             boundary_margin=bmargin,
             pred_threshold=pred_thr,
+        )
+        loss_history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "test_loss": float(metrics["loss"]),
+                "recall": float(metrics["recall"]),
+                "precision": float(metrics["precision"]),
+                "f1": float(metrics["f1"]),
+                "cost": float(metrics["cost"]),
+            }
         )
         if not quiet:
             print(
@@ -754,6 +802,13 @@ def train(
                 )
             break
 
+    loss_history_path = ckpt_dir / "loss_history.json"
+    loss_curve_path = ckpt_dir / "loss_curve.png"
+    save_loss_history(loss_history, loss_history_path)
+    plot_loss_curve(loss_history, loss_curve_path, best_epoch=best_epoch)
+    if not quiet and loss_history:
+        print(f"  wrote {loss_history_path.name} and {loss_curve_path.name}")
+
     best_ckpt = torch.load(ckpt_dir / "best.pt", map_location=dev, weights_only=False)
     model.load_state_dict(best_ckpt["model_state"])
     if not skip_final_eval:
@@ -776,6 +831,8 @@ def train(
         "metrics": dict(best_ckpt["metrics"]),
         "checkpoint_metric": checkpoint_metric,
         "checkpoint_dir": str(ckpt_dir),
+        "loss_history_path": str(loss_history_path),
+        "loss_curve_path": str(loss_curve_path),
         "hparams": {
             "lr": lr_val,
             "weight_decay": wd,
