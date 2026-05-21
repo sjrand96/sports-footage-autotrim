@@ -319,3 +319,11 @@ python src/training/evaluate.py \
   --checkpoint outputs/run_01/best.pt \
   --output outputs/run_01/metrics.json
 ```
+
+```bash
+python training-pipeline/src/training/train_transformer_frames.py \
+  --train-parquet s3://sports-footage-autotrim-bucket/feature_extraction/full_127_20260518/train/ \
+  --test-parquet s3://sports-footage-autotrim-bucket/feature_extraction/full_127_20260518/test/ \
+  --output-dir training-pipeline/outputs/transformer_frames_run1 \
+  --device cuda
+```
