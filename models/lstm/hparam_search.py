@@ -25,7 +25,6 @@ from models.lstm.train import (  # noqa: E402
     DEFAULT_PRED_THRESHOLD,
     EPOCHS,
     HEAD_DROPOUT,
-    RANDOM_SEED,
     train,
 )
 
@@ -146,8 +145,6 @@ def run_search(args: argparse.Namespace) -> None:
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 device=args.device,
-                split_mode=args.split_mode,
-                test_size=args.test_size,
                 lr=float(hp["lr"]),
                 weight_decay=float(hp["weight_decay"]),
                 pred_threshold=float(hp["pred_threshold"]),
@@ -209,7 +206,7 @@ def run_search(args: argparse.Namespace) -> None:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Random hyperparameter search for train.py")
     p.add_argument("--n-trials", type=int, default=30)
-    p.add_argument("--seed", type=int, default=RANDOM_SEED)
+    p.add_argument("--seed", type=int, default=42)
     p.add_argument("--objective", choices=("loss", "cost", "recall"), default="loss")
     p.add_argument("--checkpoint-metric", choices=("loss", "recall", "cost"), default="loss")
     p.add_argument("--output-dir", type=Path, default=SEARCH_DIR)
@@ -219,8 +216,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--head-dropout", type=float, default=HEAD_DROPOUT)
     p.add_argument("--early-stop-patience", type=int, default=2)
-    p.add_argument("--split-mode", default="stratified_by_source")
-    p.add_argument("--test-size", type=float, default=0.1)
     p.add_argument(
         "--pred-threshold",
         type=float,

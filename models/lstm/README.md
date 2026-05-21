@@ -27,6 +27,7 @@ flowchart LR
 
 ```bash
 python data/preprocess_labels.py
+python data/train_test_split.py
 python models/lstm/extract_features.py --device mps --batch-size 32
 python models/lstm/train.py --device mps --epochs 10
 ```
@@ -53,7 +54,7 @@ python models/lstm/train.py --eval-only --device mps
 
 ## Training
 
-- **Split:** 70% train / 30% test by `clip_id` (`random_seed=42`)
+- **Split:** `data/train_clips.csv` and `data/test_clips.csv` (required; create with `python data/train_test_split.py`)
 - **Loss:** Tversky (`1 - TI`) with **`tversky_alpha = n_pos / (n_pos + n_neg)`**, **`tversky_beta = n_neg / (n_pos + n_neg)`** (sum to 1); cost metric still uses inverse-frequency **`pos_weight = n_neg / n_pos`** on FN
 - **Checkpoint:** `best.pt` by lowest test Tversky loss (default `--checkpoint-metric loss`)
 - **Outputs:** `checkpoints/best.pt`, `last.pt`, `train_config.json`, `test_clip_metrics.json`

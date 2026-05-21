@@ -4,6 +4,7 @@
 Prerequisites::
 
     python data/preprocess_labels.py
+    python data/train_test_split.py
     python models/lstm/extract_features.py
     python models/lstm/train.py
 
@@ -34,6 +35,8 @@ if str(REPO_ROOT) not in sys.path:
 from models.lstm.dataset import (  # noqa: E402
     DEFAULT_BOUNDARY_MARGIN,
     DEFAULT_FRAME_STRIDE,
+    DEFAULT_TEST_CLIPS_CSV,
+    DEFAULT_TRAIN_CLIPS_CSV,
     FeatureWindowDataset,
     WINDOW_RADIUS,
     class_weight_ratio_from_counts,
@@ -41,8 +44,7 @@ from models.lstm.dataset import (  # noqa: E402
     clip_to_source_map,
     list_clip_ids,
     load_labels_by_clip,
-    split_clip_ids_by_source,
-    split_clip_ids_stratified_by_source,
+    load_train_test_clip_ids,
     train_label_counts,
 )
 from models.lstm.encoders import default_backbone, get_encoder, resolve_device  # noqa: E402
@@ -55,10 +57,8 @@ CHECKPOINT_DIR = REPO_ROOT / "models" / "lstm" / "checkpoints"
 DEFAULT_CHECKPOINT = CHECKPOINT_DIR / "best.pt"
 
 BACKBONE = default_backbone()
-# Default: ~10% of each video's clips in test (stratified by source_id).
-TEST_SIZE = 0.1
-DEFAULT_SPLIT_MODE = "stratified_by_source"
-RANDOM_SEED = 42
+TRAIN_CLIPS_CSV = DEFAULT_TRAIN_CLIPS_CSV
+TEST_CLIPS_CSV = DEFAULT_TEST_CLIPS_CSV
 BATCH_SIZE = 32
 EPOCHS = 10
 LR = 1e-4
@@ -222,72 +222,31 @@ def load_feature_meta(backbone: str) -> dict:
     return json.loads(meta_path.read_text(encoding="utf-8"))
 
 
-def _split_mode_from_config(config: dict) -> str:
-    if mode := config.get("split_mode"):
-        return str(mode)
-    if config.get("random_source_split"):
-        return "random_by_source"
-    if config.get("fixed_test_sources"):
-        return "hold_out_sources"
-    return DEFAULT_SPLIT_MODE
+def _path_for_config(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return str(path.resolve())
 
 
-def _test_size_from_config(config: dict) -> float:
-    return float(config.get("test_size", config.get("test_size_sources", TEST_SIZE)))
-
-
-def split_train_test_clips(
-    clip_ids: list[str],
-    source_map: dict[str, str],
-    *,
-    split_mode: str = DEFAULT_SPLIT_MODE,
-    test_size: float = TEST_SIZE,
-    random_state: int = RANDOM_SEED,
-    hold_out_sources: tuple[str, ...] = (),
-) -> tuple[list[str], list[str], dict]:
-    if split_mode == "stratified_by_source":
-        return split_clip_ids_stratified_by_source(
-            clip_ids,
-            source_map,
-            test_size=test_size,
-            random_state=random_state,
-        )
-    if split_mode == "hold_out_sources":
-        if not hold_out_sources:
-            raise RuntimeError("hold_out_sources split requires at least one source_id")
-        return split_clip_ids_by_source(
-            clip_ids,
-            source_map,
-            fixed_test_sources=hold_out_sources,
-            test_size=test_size,
-            random_state=random_state,
-        )
-    if split_mode == "random_by_source":
-        return split_clip_ids_by_source(
-            clip_ids,
-            source_map,
-            fixed_test_sources=None,
-            test_size=test_size,
-            random_state=random_state,
-        )
-    raise ValueError(f"unknown split_mode: {split_mode!r}")
+def _clip_list_path_from_config(config: dict, key: str, default: Path) -> Path:
+    raw = config.get(key)
+    if raw is None:
+        return default
+    path = Path(str(raw))
+    return path if path.is_absolute() else REPO_ROOT / path
 
 
 def resolved_test_clip_ids_from_config(config: dict) -> list[str]:
-    """Rebuild test clip ids when a checkpoint omits ``test_clip_ids`` but stored split settings."""
-    explicit = config.get("test_clip_ids")
-    if explicit:
+    """Test clip ids from checkpoint config, or reload from train/test CSV paths."""
+    if explicit := config.get("test_clip_ids"):
         return list(explicit)
-    sm = clip_to_source_map(FRAME_LABELS_CSV)
-    all_ids = list_clip_ids(FRAME_LABELS_CSV)
-    hold_out = tuple(str(x) for x in (config.get("hold_out_sources") or config.get("fixed_test_sources") or ()))
-    _, test_ids, _ = split_train_test_clips(
-        all_ids,
-        sm,
-        split_mode=_split_mode_from_config(config),
-        test_size=_test_size_from_config(config),
-        random_state=int(config.get("random_seed", RANDOM_SEED)),
-        hold_out_sources=hold_out,
+    train_csv = _clip_list_path_from_config(config, "train_clips_csv", TRAIN_CLIPS_CSV)
+    test_csv = _clip_list_path_from_config(config, "test_clips_csv", TEST_CLIPS_CSV)
+    _, test_ids = load_train_test_clip_ids(
+        train_csv=train_csv,
+        test_csv=test_csv,
+        labeled_clip_ids=list_clip_ids(FRAME_LABELS_CSV),
     )
     return test_ids
 
@@ -517,9 +476,6 @@ def train(
     epochs: int | None = None,
     batch_size: int | None = None,
     device: torch.device | str | None = None,
-    split_mode: str = DEFAULT_SPLIT_MODE,
-    test_size: float | None = None,
-    hold_out_sources: str = "",
     lr: float | None = None,
     weight_decay: float | None = None,
     pred_threshold: float | None = None,
@@ -566,32 +522,13 @@ def train(
         )
 
     labels_by_clip = load_labels_by_clip(FRAME_LABELS_CSV)
-    all_clip_ids = list_clip_ids(FRAME_LABELS_CSV)
-    ts_frac = TEST_SIZE if test_size is None else test_size
-    hold_out = tuple(s.strip() for s in hold_out_sources.split(",") if s.strip())
-    smap = clip_to_source_map(FRAME_LABELS_CSV)
-    train_ids, test_ids, split_info = split_train_test_clips(
-        all_clip_ids,
-        smap,
-        split_mode=split_mode,
-        test_size=ts_frac,
-        random_state=RANDOM_SEED,
-        hold_out_sources=hold_out,
+    train_ids, test_ids = load_train_test_clip_ids(
+        train_csv=TRAIN_CLIPS_CSV,
+        test_csv=TEST_CLIPS_CSV,
+        labeled_clip_ids=list_clip_ids(FRAME_LABELS_CSV),
     )
-    print(
-        f"split={split_info['mode']}  test_size={ts_frac}  "
-        f"clips train={len(train_ids)} test={len(test_ids)}"
-    )
-    if split_info["mode"] == "stratified_by_source":
-        per_src = split_info["per_source"]
-        n_with_test = sum(1 for v in per_src.values() if v["n_test"] > 0)
-        print(f"  sources={split_info['n_sources']}  sources_with_test_clips={n_with_test}")
-    else:
-        print(
-            f"  sources train={split_info['n_sources_train']} "
-            f"test={split_info['n_sources_test']}"
-        )
-        print(f"  test source_id(s): {split_info['test_sources']}")
+    print(f"train clips: {len(train_ids)} ({TRAIN_CLIPS_CSV})")
+    print(f"test clips:  {len(test_ids)} ({TEST_CLIPS_CSV})")
 
     train_ds = FeatureWindowDataset(
         train_ids,
@@ -667,11 +604,8 @@ def train(
         "frame_labels_csv": str(FRAME_LABELS_CSV.relative_to(REPO_ROOT)),
         "train_clip_ids": train_ids,
         "test_clip_ids": test_ids,
-        "split": split_info,
-        "split_mode": split_mode,
-        "test_size": ts_frac,
-        "hold_out_sources": list(hold_out) if hold_out else None,
-        "random_seed": RANDOM_SEED,
+        "train_clips_csv": _path_for_config(TRAIN_CLIPS_CSV),
+        "test_clips_csv": _path_for_config(TEST_CLIPS_CSV),
         "batch_size": batch_size,
         "epochs": epochs,
         "lr": lr_val,
@@ -926,28 +860,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     p.add_argument("--force-extract", action="store_true", help="Re-run CNN for test clips")
     p.add_argument(
-        "--split-mode",
-        choices=("stratified_by_source", "random_by_source", "hold_out_sources"),
-        default=DEFAULT_SPLIT_MODE,
-        help="stratified_by_source: ~test_size of each video's clips in test (default); "
-        "random_by_source: whole videos in train or test; "
-        "hold_out_sources: all clips from --hold-out-sources in test.",
-    )
-    p.add_argument(
-        "--test-size",
-        type=float,
-        default=TEST_SIZE,
-        metavar="FRAC",
-        help=f"Fraction of clips in test per video (stratified, default {TEST_SIZE}) "
-        "or fraction of videos (random_by_source).",
-    )
-    p.add_argument(
-        "--hold-out-sources",
-        default="",
-        metavar="IDS",
-        help="Comma-separated source_id values; required when --split-mode=hold_out_sources.",
-    )
-    p.add_argument(
         "--pred-threshold",
         type=float,
         default=DEFAULT_PRED_THRESHOLD,
@@ -1017,9 +929,6 @@ if __name__ == "__main__":
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 device=args.device,
-                split_mode=args.split_mode,
-                test_size=args.test_size,
-                hold_out_sources=args.hold_out_sources,
                 lr=args.lr,
                 weight_decay=args.weight_decay,
                 pred_threshold=args.pred_threshold,
