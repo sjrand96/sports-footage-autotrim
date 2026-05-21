@@ -31,6 +31,10 @@ ml = [
     "xgboost>=2.0",
     "wandb>=0.16",
 ]
+eval = [
+    "matplotlib>=3.8",
+    "pandas>=2.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
