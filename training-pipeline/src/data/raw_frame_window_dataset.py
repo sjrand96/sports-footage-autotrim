@@ -12,7 +12,16 @@ import torch
 from torch.utils.data import Dataset
 
 from src.data.s3_cache import download_s3_uri, is_s3_uri, parse_s3_uri
-from models.lstm.dataset import loss_mask_for_labels
+
+try:
+    from models.lstm.dataset import loss_mask_for_labels
+except ModuleNotFoundError:
+    import sys
+
+    REPO_ROOT = Path(__file__).resolve().parents[3]
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from models.lstm.dataset import loss_mask_for_labels
 
 
 @dataclass(frozen=True)

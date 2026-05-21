@@ -21,8 +21,28 @@ from tqdm import tqdm
 
 TRAINING_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _same_path(left: str, right: Path) -> bool:
+    try:
+        return Path(left).resolve() == right.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+sys.path = [entry for entry in sys.path if not _same_path(entry, REPO_ROOT)]
 if str(TRAINING_ROOT) not in sys.path:
     sys.path.insert(0, str(TRAINING_ROOT))
+
+from src.data.raw_frame_window_dataset import (  # noqa: E402
+    RawFrameWindowDataset,
+    collate_raw_frame_windows,
+)
+from src.models.transformer_classifier import (  # noqa: E402
+    TransformerClassifier,
+    TransformerConfig,
+)
+
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -32,14 +52,6 @@ from models.lstm.dataset import (  # noqa: E402
     train_label_counts,
 )
 from models.lstm.encoders import resolve_device  # noqa: E402
-from src.data.raw_frame_window_dataset import (  # noqa: E402
-    RawFrameWindowDataset,
-    collate_raw_frame_windows,
-)
-from src.models.transformer_classifier import (  # noqa: E402
-    TransformerClassifier,
-    TransformerConfig,
-)
 from src.training.wandb_logger import WandbConfig, WandbLogger  # noqa: E402
 
 
@@ -63,6 +75,7 @@ class TrainConfig:
     checkpoint_metric: str = "loss"
     early_stop_patience: int | None = None
     num_workers: int = 2
+    log_every: int = 20
     device: str | None = None
     finetune_encoder: bool = False
     encoder_lr: float | None = None
@@ -362,6 +375,12 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         collate_fn=collate_raw_frame_windows,
     )
 
+    print(
+        "dataset: "
+        f"train_samples={len(train_ds)} test_samples={len(test_ds)} "
+        f"batch_size={cfg.batch_size} num_workers={cfg.num_workers}"
+    )
+
     encoder = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     encoder.fc = nn.Identity()
     encoder.to(dev)
@@ -441,11 +460,19 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
     epochs_without_improvement = 0
     loss_history: list[dict[str, Any]] = []
 
-    for epoch in tqdm(range(cfg.epochs), desc="epochs"):
+    for epoch in tqdm(range(cfg.epochs), desc="epochs", dynamic_ncols=True, mininterval=1.0):
         model.train()
         train_loss_sum = 0.0
         train_mask_sum = 0.0
-        for batch in tqdm(train_loader, desc=f"train {epoch}", leave=False):
+        train_iter = tqdm(
+            train_loader,
+            desc=f"train {epoch}",
+            leave=False,
+            dynamic_ncols=True,
+            mininterval=1.0,
+            total=len(train_loader),
+        )
+        for batch_idx, batch in enumerate(train_iter):
             frames = batch["video"].to(dev)
             labels = batch["label"].to(dev).unsqueeze(1)
             loss_mask = batch["loss_mask"].to(dev).unsqueeze(1)
@@ -468,6 +495,8 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
                 train_mask_sum += float(labels.numel())
             loss.backward()
             optimizer.step()
+            if cfg.log_every > 0 and batch_idx % cfg.log_every == 0:
+                train_iter.set_postfix({"loss": f"{loss.item():.4f}"})
 
         train_loss = train_loss_sum / max(train_mask_sum, 1.0)
         pooled, per_clip, y_true, y_pred = evaluate_loader(
@@ -620,6 +649,7 @@ def parse_args() -> TrainConfig:
     p.add_argument("--num-heads", type=int, default=4)
     p.add_argument("--num-layers", type=int, default=3)
     p.add_argument("--dropout", type=float, default=0.1)
+    p.add_argument("--log-every", type=int, default=20, help="Batch interval for progress updates")
     p.add_argument("--wandb-project", default="volleyball-playtime")
     p.add_argument("--wandb-entity", default="cs348k-sports-footage-autotrim")
     p.add_argument("--wandb-run", default=None)
@@ -650,6 +680,7 @@ def parse_args() -> TrainConfig:
         num_heads=args.num_heads,
         num_layers=args.num_layers,
         dropout=args.dropout,
+        log_every=args.log_every,
         wandb_project=args.wandb_project,
         wandb_entity=args.wandb_entity,
         wandb_run=args.wandb_run,
