@@ -1,6 +1,6 @@
 """Build deterministic per-video train/test clip lists from Supabase.
 
-Writes ``data/train_test_split/train_clips.csv``, ``test_clips.csv``, and ``meta.json``.
+Writes ``data/train_clips.csv``, ``data/test_clips.csv``, and ``data/train-test-split-meta.json``.
 Only clips with timeline labels in Supabase are included; unlabeled clips are skipped with a warning.
 Edit ``data/source_ids.py`` for which sources to include. Re-runs are reproducible (seed 42).
 
@@ -22,7 +22,10 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OUTPUT_DIR = REPO_ROOT / "data" / "train_test_split"
+DATA_DIR = REPO_ROOT / "data"
+TRAIN_CSV = DATA_DIR / "train_clips.csv"
+TEST_CSV = DATA_DIR / "test_clips.csv"
+META_JSON = DATA_DIR / "train_test_split_meta.json"
 
 TEST_FRACTION = 0.2
 SPLIT_SEED = 42
@@ -125,21 +128,16 @@ def train_test_split() -> None:
         raise RuntimeError("no clips with labels in Supabase for any source_id")
 
     train, test, meta = assign_train_test_by_source(clips)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    for path, rows in (
-        (OUTPUT_DIR / "train_clips.csv", train),
-        (OUTPUT_DIR / "test_clips.csv", test),
-    ):
+    for path, rows in ((TRAIN_CSV, train), (TEST_CSV, test)):
         with path.open("w", encoding="utf-8", newline="") as f:
             csv.writer(f).writerows([[c["clip_id"]] for c in rows])
 
-    meta_path = OUTPUT_DIR / "meta.json"
-    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    META_JSON.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    print(f"train clips: {len(train)} -> {OUTPUT_DIR / 'train_clips.csv'}")
-    print(f"test clips:  {len(test)} -> {OUTPUT_DIR / 'test_clips.csv'}")
-    print(f"meta:        {meta_path}")
+    print(f"train clips: {len(train)} -> {TRAIN_CSV.relative_to(REPO_ROOT)}")
+    print(f"test clips:  {len(test)} -> {TEST_CSV.relative_to(REPO_ROOT)}")
+    print(f"meta:        {META_JSON.relative_to(REPO_ROOT)}")
     for source_id, counts in sorted(meta["per_source"].items()):
         print(
             f"  {source_id}: {counts['train']} train / {counts['test']} test "
