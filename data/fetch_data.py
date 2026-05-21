@@ -7,7 +7,7 @@ Run directly::
 
     python data/fetch_data.py
 
-Edit ``SOURCE_IDS`` below to choose which sources to fetch.
+Edit ``SOURCE_IDS`` in ``data/source_ids.py`` to choose which sources to fetch.
 """
 
 from __future__ import annotations
@@ -221,22 +221,14 @@ def download_labels(
 
 
 if __name__ == "__main__":
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
     ensure_env_loaded()
 
-    # Edit this list, then run: python data/fetch_data.py
-    SOURCE_IDS = [
-        "jZ18INu4LQc",
-        "vq3CZAx3GnM",
-        "GRuOSrz3kdY",
-        "1rXZJyVXUHU",
-        "6rRMEXuLAng",
-        "Fr3ue3w5QRY",
-        "ANwMhMfcwGM",
-        "2crSZaHIBaY",
-    ]
+    from data.source_ids import SOURCE_IDS
 
     if not SOURCE_IDS:
-        print("SOURCE_IDS is empty; add source IDs to data/fetch_data.py", file=sys.stderr)
+        print("SOURCE_IDS is empty; add source IDs to data/source_ids.py", file=sys.stderr)
         sys.exit(1)
 
     for source_id in SOURCE_IDS:

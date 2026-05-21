@@ -18,6 +18,8 @@ seaborn>=0.12.0
 
 # Machine learning
 scikit-learn>=1.3.0
+xgboost>=2.0.0
+shap>=0.44.0
 
 # Computer vision and ML
 opencv-python>=4.8.0
@@ -42,3 +44,5 @@ pathlib
 
 # Roboflow
 roboflow>=1.1.66
+
+shap
