@@ -12,8 +12,8 @@ from torch.utils.data import Dataset
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRAME_LABELS_CSV = REPO_ROOT / "data" / "preprocessed_labels" / "frame_labels.csv"
-DEFAULT_TRAIN_CLIPS_CSV = REPO_ROOT / "data" / "train_clips.csv"
-DEFAULT_TEST_CLIPS_CSV = REPO_ROOT / "data" / "test_clips.csv"
+DEFAULT_TRAIN_CLIPS_CSV = REPO_ROOT / "data" / "train_clips_20260518.csv"
+DEFAULT_TEST_CLIPS_CSV = REPO_ROOT / "data" / "test_clips_20260518.csv"
 DEFAULT_FEATURES_ROOT = REPO_ROOT / "data" / "preprocessed_features"
 
 WINDOW_SIZE = 30
