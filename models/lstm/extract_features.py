@@ -50,7 +50,7 @@ def clip_mp4_path(source_id: str, clip_id: str) -> Path:
 def list_clips_from_csv() -> list[tuple[str, str]]:
     """Return sorted (clip_id, source_id) pairs from the label table."""
     seen: set[tuple[str, str]] = set()
-    with FRAME_LABELS_CSV.open(encoding="utf-8") as f:
+    with FRAME_LABELS_CSV.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             seen.add((row["clip_id"], row["source_id"]))

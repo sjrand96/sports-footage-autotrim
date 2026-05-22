@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -108,10 +109,13 @@ def list_clip_ids(csv_path: Path = DEFAULT_FRAME_LABELS_CSV) -> list[str]:
 
 def _read_clip_ids_csv(path: Path) -> list[str]:
     ids: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        clip_id = line.strip()
-        if clip_id:
-            ids.append(clip_id)
+    with path.open(encoding="utf-8", newline="") as f:
+        for row in csv.reader(f):
+            if not row:
+                continue
+            clip_id = row[0].strip()
+            if clip_id:
+                ids.append(clip_id)
     if not ids:
         raise RuntimeError(f"no clip ids in {path}")
     return ids

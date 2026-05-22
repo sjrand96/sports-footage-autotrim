@@ -91,7 +91,9 @@ def write_summary_csv(rows: list[dict[str, Any]], path: Path) -> None:
         "checkpoint_dir",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w = csv.DictWriter(
+            f, fieldnames=fields, extrasaction="ignore", lineterminator="\n"
+        )
         w.writeheader()
         for row in rows:
             hp = row.get("hparams") or {}

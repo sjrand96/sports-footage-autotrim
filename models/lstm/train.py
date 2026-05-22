@@ -64,7 +64,7 @@ EPOCHS = 10
 LR = 1e-4
 WEIGHT_DECAY = 1e-4  # AdamW L2; set 0 to disable
 NUM_WORKERS = 0
-# Playing vs inactive at inference; lower => higher recall (default 0.35).
+# Playing vs inactive at inference; lower => higher recall.
 DEFAULT_PRED_THRESHOLD = 0.35
 
 # Temporal head (smaller + dropout to reduce overfitting)
