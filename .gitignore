@@ -3,6 +3,7 @@ data/labels/
 data/preprocessed_labels/
 data/preprocessed_features/
 models/lstm/checkpoints/
+models/lstm/predictions/
 data/*.mp4
 video-editor/node_modules/
 video-editor/.vite/deps/
