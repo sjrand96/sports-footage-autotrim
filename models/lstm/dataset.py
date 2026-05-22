@@ -20,6 +20,24 @@ WINDOW_SIZE = 30
 WINDOW_RADIUS = 15  # T-15 .. T+14 inclusive
 DEFAULT_BOUNDARY_MARGIN = 0  # frames to drop from loss on each side of a 0/1 transition
 DEFAULT_FRAME_STRIDE = 1  # train: use every Nth frame; test/eval always stride 1
+# F-beta and Tversky: beta>1 weights recall over precision (beta=2 => F2).
+DEFAULT_F_BETA = 2.0
+
+
+def f_beta_score(precision: float, recall: float, beta: float = DEFAULT_F_BETA) -> float:
+    """F_beta = (1 + beta^2) * P * R / (beta^2 * P + R)."""
+    b2 = float(beta) ** 2
+    denom = b2 * precision + recall
+    if denom <= 0:
+        return 0.0
+    return (1.0 + b2) * precision * recall / denom
+
+
+def tversky_coefficients_from_f_beta(f_beta: float = DEFAULT_F_BETA) -> tuple[float, float]:
+    """Tversky FP/FN weights aligned with F_beta: alpha=1/(1+beta^2), beta_fn=beta^2/(1+beta^2)."""
+    b2 = float(f_beta) ** 2
+    denom = 1.0 + b2
+    return 1.0 / denom, b2 / denom
 
 
 def train_label_counts(
@@ -58,7 +76,10 @@ def bce_pos_weight_from_counts(n_pos: int, n_neg: int) -> float:
 
 
 def tversky_coefficients_from_counts(n_pos: int, n_neg: int) -> tuple[float, float]:
-    """Tversky (alpha=FP, beta=FN) with ``alpha + beta == 1`` from class frequencies."""
+    """Tversky (alpha=FP, beta=FN) with ``alpha + beta == 1`` from class frequencies.
+
+    Prefer :func:`tversky_coefficients_from_f_beta` when matching evaluation F_beta.
+    """
     total = n_pos + n_neg
     if total <= 0:
         raise ValueError("no labeled frames in training count")

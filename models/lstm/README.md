@@ -55,11 +55,11 @@ python models/lstm/train.py --eval-only --device mps
 ## Training
 
 - **Split:** `data/train_clips.csv` and `data/test_clips.csv` (required; create with `python data/train_test_split.py`)
-- **Loss:** Tversky (`1 - TI`) with **`tversky_alpha = n_pos / (n_pos + n_neg)`**, **`tversky_beta = n_neg / (n_pos + n_neg)`** (sum to 1); cost metric still uses inverse-frequency **`pos_weight = n_neg / n_pos`** on FN
-- **Checkpoint:** `best.pt` by lowest test Tversky loss (default `--checkpoint-metric loss`)
+- **Loss:** Tversky (`1 - TI`) with FP/FN weights aligned to **F_beta** (default **β=2**: `tversky_alpha=1/5`, `tversky_beta=4/5`); thresholded **F2** replaces F1; cost metric still uses inverse-frequency **`pos_weight = n_neg / n_pos`** on FN
+- **Checkpoint:** `best.pt` by test metric (default `--checkpoint-metric loss`; also `recall`, `cost`, `f_beta`)
 - **Outputs:** `checkpoints/best.pt`, `last.pt`, `train_config.json`, `test_clip_metrics.json`
 
-After the last epoch, `train.py` reloads `best.pt` and prints per-clip recall, precision, F1, cost, and confusion counts, plus a pooled summary over all test frames.
+After the last epoch, `train.py` reloads `best.pt` and prints per-clip recall, precision, F_beta, cost, and confusion counts, plus a pooled summary over all test frames.
 
 ---
 

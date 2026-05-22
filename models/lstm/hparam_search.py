@@ -3,7 +3,7 @@
 
     python models/lstm/hparam_search.py --device mps --n-trials 30 --quiet
 
-Tversky class weights (beta from inverse frequency) are computed from training counts in train.py.
+Tversky FP/FN weights follow ``--f-beta`` (default F2 / recall-heavy) in train.py.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def write_summary_csv(rows: list[dict[str, Any]], path: Path) -> None:
         "cost",
         "recall",
         "precision",
-        "f1",
+        "f_beta",
         "best_epoch",
         "elapsed_sec",
         "checkpoint_dir",
@@ -112,7 +112,7 @@ def write_summary_csv(rows: list[dict[str, Any]], path: Path) -> None:
                     "cost": m.get("cost"),
                     "recall": m.get("recall"),
                     "precision": m.get("precision"),
-                    "f1": m.get("f1"),
+                    "f_beta": m.get("f_beta"),
                     "best_epoch": row.get("best_epoch"),
                     "elapsed_sec": row.get("elapsed_sec"),
                     "checkpoint_dir": row.get("checkpoint_dir"),
@@ -210,7 +210,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-trials", type=int, default=30)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--objective", choices=("loss", "cost", "recall"), default="loss")
-    p.add_argument("--checkpoint-metric", choices=("loss", "recall", "cost"), default="loss")
+    p.add_argument(
+        "--checkpoint-metric",
+        choices=("loss", "recall", "cost", "f_beta"),
+        default="loss",
+    )
     p.add_argument("--output-dir", type=Path, default=SEARCH_DIR)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--device", default=None)

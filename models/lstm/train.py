@@ -10,7 +10,8 @@ Prerequisites::
 
 Re-run test evaluation only::
 
-    python models/lstm/train.py --eval-only --device mps
+    python models/lstm/train.py --eval-only --device mps \\
+        --checkpoint-dir models/lstm/checkpoints/<run-id>
 
 After training, writes ``loss_history.json`` and ``loss_curve.png`` under the checkpoint dir.
 """
@@ -39,8 +40,10 @@ from models.lstm.dataset import (  # noqa: E402
     DEFAULT_TRAIN_CLIPS_CSV,
     FeatureWindowDataset,
     WINDOW_RADIUS,
+    DEFAULT_F_BETA,
     class_weight_ratio_from_counts,
-    tversky_coefficients_from_counts,
+    f_beta_score,
+    tversky_coefficients_from_f_beta,
     clip_to_source_map,
     list_clip_ids,
     load_labels_by_clip,
@@ -72,7 +75,7 @@ LSTM_HIDDEN_SIZE = 128
 LSTM_NUM_LAYERS = 1
 LSTM_DROPOUT = 0.0  # only used when LSTM_NUM_LAYERS > 1 (between LSTM layers)
 HEAD_DROPOUT = 0.3  # on BiLSTM output before the linear head (active in train mode)
-DEFAULT_CHECKPOINT_METRIC = "loss"  # loss | recall | cost
+DEFAULT_CHECKPOINT_METRIC = "loss"  # loss | recall | cost | f_beta
 TVERSKY_SMOOTH = 1e-6
 
 
@@ -88,9 +91,7 @@ def temporal_model_from_config(feat_dim: int, config: dict) -> TemporalPlayingCl
 
 
 def pos_weight_from_config(config: dict) -> float:
-    """Cost FN weight / Tversky beta from checkpoint config (legacy keys supported)."""
-    if "tversky_beta" in config:
-        return float(config["tversky_beta"])
+    """Cost FN weight from checkpoint config (inverse-frequency ``pos_weight``; legacy keys supported)."""
     if "pos_weight" in config:
         return float(config["pos_weight"])
     if "fn_fp_weight_ratio" in config:
@@ -109,19 +110,30 @@ def tversky_coefficients_from_config(config: dict) -> tuple[float, float]:
     if "tversky_alpha" in config and "tversky_beta" in config:
         alpha = float(config["tversky_alpha"])
         beta = float(config["tversky_beta"])
-    else:
-        ratio = pos_weight_from_config(config)
-        alpha, beta = 1.0, ratio
-    total = alpha + beta
-    if total <= 0:
-        return 0.5, 0.5
-    return alpha / total, beta / total
+        total = alpha + beta
+        if total <= 0:
+            return 0.5, 0.5
+        return alpha / total, beta / total
+    f_beta = float(config.get("f_beta", DEFAULT_F_BETA))
+    return tversky_coefficients_from_f_beta(f_beta)
 
 
 def pred_threshold_from_config(config: dict) -> float:
     if "pred_threshold" in config:
         return float(config["pred_threshold"])
     return DEFAULT_PRED_THRESHOLD
+
+
+def resolve_checkpoint_path(
+    checkpoint: Path | None,
+    checkpoint_dir: Path | None,
+) -> Path:
+    """Resolve weights file: explicit ``--checkpoint`` > ``--checkpoint-dir``/best.pt > default."""
+    if checkpoint is not None:
+        return checkpoint
+    if checkpoint_dir is not None:
+        return checkpoint_dir / "best.pt"
+    return DEFAULT_CHECKPOINT
 
 
 def tversky_loss(
@@ -187,8 +199,9 @@ def binary_metrics(
     y_pred: np.ndarray,
     *,
     pos_weight: float,
+    f_beta: float = DEFAULT_F_BETA,
 ) -> dict[str, float]:
-    """Thresholded frame metrics; ``cost = pos_weight * FN + FP`` (matches Tversky beta on FN)."""
+    """Thresholded frame metrics; ``cost = pos_weight * FN + FP``."""
     yt = y_true.astype(np.int64).ravel()
     yp = y_pred.astype(np.int64).ravel()
     tp = int(((yp == 1) & (yt == 1)).sum())
@@ -197,7 +210,7 @@ def binary_metrics(
     fn = int(((yp == 0) & (yt == 1)).sum())
     precision = tp / max(tp + fp, 1)
     recall = tp / max(tp + fn, 1)
-    f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+    f_beta_val = f_beta_score(precision, recall, f_beta)
     n = tp + fp + tn + fn
     return {
         "tp": float(tp),
@@ -206,7 +219,7 @@ def binary_metrics(
         "fn": float(fn),
         "precision": precision,
         "recall": recall,
-        "f1": f1,
+        "f_beta": f_beta_val,
         "accuracy": (tp + tn) / max(n, 1),
         "cost": pos_weight * fn + fp,
         "n_frames": float(n),
@@ -271,6 +284,7 @@ def evaluate_loader(
     tversky_beta: float,
     boundary_margin: int = 0,
     pred_threshold: float = DEFAULT_PRED_THRESHOLD,
+    f_beta: float = DEFAULT_F_BETA,
 ) -> dict[str, float]:
     model.eval()
     loss_sum = 0.0
@@ -307,7 +321,10 @@ def evaluate_loader(
             y_pred.append(preds)
 
     metrics = binary_metrics(
-        np.concatenate(y_true), np.concatenate(y_pred), pos_weight=pos_weight
+        np.concatenate(y_true),
+        np.concatenate(y_pred),
+        pos_weight=pos_weight,
+        f_beta=f_beta,
     )
     metrics["loss"] = loss_sum / max(mask_sum, 1.0)
     return metrics
@@ -354,7 +371,8 @@ def predict_clip(
 def format_metrics_row(clip_id: str, m: dict[str, float]) -> str:
     return (
         f"{clip_id:20s}  "
-        f"recall={m['recall']:.3f}  precision={m['precision']:.3f}  f1={m['f1']:.3f}  "
+        f"recall={m['recall']:.3f}  precision={m['precision']:.3f}  "
+        f"f_beta={m['f_beta']:.3f}  "
         f"acc={m['accuracy']:.3f}  cost={m['cost']:.0f}  "
         f"TP={int(m['tp']):4d} FP={int(m['fp']):4d} TN={int(m['tn']):4d} FN={int(m['fn']):4d}  "
         f"n={int(m['n_frames'])}"
@@ -371,6 +389,7 @@ def evaluate_test_clips(
     batch_size: int,
     pos_weight: float,
     pred_threshold: float = DEFAULT_PRED_THRESHOLD,
+    f_beta: float = DEFAULT_F_BETA,
     save_report: Path | None = CHECKPOINT_DIR / "test_clip_metrics.json",
 ) -> dict:
     """Per-clip and pooled frame metrics on held-out clips."""
@@ -389,14 +408,17 @@ def evaluate_test_clips(
             batch_size=batch_size,
             pred_threshold=pred_threshold,
         )
-        m = binary_metrics(yt, yp, pos_weight=pos_weight)
+        m = binary_metrics(yt, yp, pos_weight=pos_weight, f_beta=f_beta)
         per_clip[clip_id] = m
         all_true.append(yt)
         all_pred.append(yp)
         print(format_metrics_row(clip_id, m))
 
     pooled = binary_metrics(
-        np.concatenate(all_true), np.concatenate(all_pred), pos_weight=pos_weight
+        np.concatenate(all_true),
+        np.concatenate(all_pred),
+        pos_weight=pos_weight,
+        f_beta=f_beta,
     )
     print("\npooled:")
     print(format_metrics_row("ALL", pooled))
@@ -416,6 +438,7 @@ def _is_better_checkpoint(
     best_loss: float,
     best_recall: float,
     best_cost: float,
+    best_f_beta: float,
 ) -> bool:
     if metric == "loss":
         return metrics["loss"] < best_loss
@@ -423,7 +446,11 @@ def _is_better_checkpoint(
         return metrics["cost"] < best_cost or (
             metrics["cost"] == best_cost and metrics["recall"] > best_recall
         )
-    # recall (default): highest recall, then lowest cost
+    if metric == "f_beta":
+        return metrics["f_beta"] > best_f_beta or (
+            metrics["f_beta"] == best_f_beta and metrics["cost"] < best_cost
+        )
+    # recall: highest recall, then lowest cost
     return metrics["recall"] > best_recall or (
         metrics["recall"] == best_recall and metrics["cost"] < best_cost
     )
@@ -434,6 +461,11 @@ def _checkpoint_save_msg(metric: str, metrics: dict[str, float]) -> str:
         return f"test_loss={metrics['loss']:.4f}"
     if metric == "cost":
         return f"cost={metrics['cost']:.0f} recall={metrics['recall']:.4f}"
+    if metric == "f_beta":
+        return (
+            f"f_beta={metrics['f_beta']:.4f} recall={metrics['recall']:.4f} "
+            f"precision={metrics['precision']:.4f}"
+        )
     return f"recall={metrics['recall']:.4f} cost={metrics['cost']:.0f}"
 
 
@@ -479,6 +511,7 @@ def train(
     lr: float | None = None,
     weight_decay: float | None = None,
     pred_threshold: float | None = None,
+    f_beta: float | None = None,
     head_dropout: float | None = None,
     checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
     checkpoint_dir: Path | None = None,
@@ -493,17 +526,21 @@ def train(
     lr_val = LR if lr is None else lr
     wd = WEIGHT_DECAY if weight_decay is None else weight_decay
     pred_thr = DEFAULT_PRED_THRESHOLD if pred_threshold is None else pred_threshold
+    f_beta_val = DEFAULT_F_BETA if f_beta is None else f_beta
     hd = HEAD_DROPOUT if head_dropout is None else head_dropout
     bmargin = DEFAULT_BOUNDARY_MARGIN if boundary_margin is None else boundary_margin
     frame_stride = DEFAULT_FRAME_STRIDE if train_frame_stride is None else train_frame_stride
     es_patience = early_stop_patience
     ckpt_dir = CHECKPOINT_DIR if checkpoint_dir is None else checkpoint_dir
-    if checkpoint_metric not in ("loss", "recall", "cost"):
-        raise ValueError(f"checkpoint_metric must be loss, recall, or cost; got {checkpoint_metric!r}")
+    if checkpoint_metric not in ("loss", "recall", "cost", "f_beta"):
+        raise ValueError(
+            f"checkpoint_metric must be loss, recall, cost, or f_beta; got {checkpoint_metric!r}"
+        )
     dev = resolve_device(device) if device is not None else resolve_device()
     print(
         f"device={dev} backbone={BACKBONE} epochs={epochs} batch_size={batch_size} "
         f"lr={lr_val} weight_decay={wd} head_dropout={hd} pred_threshold={pred_thr} "
+        f"f_beta={f_beta_val} "
         f"boundary_margin={bmargin} train_frame_stride={frame_stride} "
         f"early_stop_patience={es_patience} checkpoint_metric={checkpoint_metric} "
         f"checkpoint_dir={ckpt_dir}"
@@ -550,11 +587,11 @@ def train(
     n_pos, n_neg = train_label_counts(
         train_ids, labels_by_clip, boundary_margin=bmargin, frame_stride=frame_stride
     )
-    tversky_alpha, tversky_beta = tversky_coefficients_from_counts(n_pos, n_neg)
+    tversky_alpha, tversky_beta = tversky_coefficients_from_f_beta(f_beta_val)
     pos_weight = class_weight_ratio_from_counts(n_pos, n_neg)
     print(
-        f"  class weights: n_pos={n_pos} n_neg={n_neg} "
-        f"tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
+        f"  class counts: n_pos={n_pos} n_neg={n_neg} "
+        f"f_beta={f_beta_val} tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
         f"(sum={tversky_alpha + tversky_beta:.4f}) pos_weight={pos_weight:.4f} (cost FN)"
     )
 
@@ -611,6 +648,7 @@ def train(
         "lr": lr_val,
         "weight_decay": wd,
         "loss": "tversky",
+        "f_beta": f_beta_val,
         "tversky_alpha": tversky_alpha,
         "tversky_beta": tversky_beta,
         "pos_weight": pos_weight,
@@ -631,6 +669,7 @@ def train(
     best_loss = float("inf")
     best_recall = -1.0
     best_cost = float("inf")
+    best_f_beta = -1.0
     best_epoch = -1
     epochs_without_improvement = 0
     loss_history: list[dict[str, Any]] = []
@@ -678,6 +717,7 @@ def train(
             tversky_beta=tversky_beta,
             boundary_margin=bmargin,
             pred_threshold=pred_thr,
+            f_beta=f_beta_val,
         )
         loss_history.append(
             {
@@ -686,7 +726,7 @@ def train(
                 "test_loss": float(metrics["loss"]),
                 "recall": float(metrics["recall"]),
                 "precision": float(metrics["precision"]),
-                "f1": float(metrics["f1"]),
+                "f_beta": float(metrics["f_beta"]),
                 "cost": float(metrics["cost"]),
             }
         )
@@ -695,7 +735,7 @@ def train(
                 f"epoch {epoch}: train_loss={train_loss:.4f} "
                 f"test_loss={metrics['loss']:.4f} "
                 f"recall={metrics['recall']:.4f} precision={metrics['precision']:.4f} "
-                f"f1={metrics['f1']:.4f} cost={metrics['cost']:.0f} "
+                f"f_beta={metrics['f_beta']:.4f} cost={metrics['cost']:.0f} "
                 f"(TP={metrics['tp']:.0f} FP={metrics['fp']:.0f} "
                 f"TN={metrics['tn']:.0f} FN={metrics['fn']:.0f})"
             )
@@ -715,11 +755,13 @@ def train(
             best_loss=best_loss,
             best_recall=best_recall,
             best_cost=best_cost,
+            best_f_beta=best_f_beta,
         )
         if improved:
             best_loss = min(best_loss, metrics["loss"])
             best_recall = max(best_recall, metrics["recall"])
             best_cost = min(best_cost, metrics["cost"])
+            best_f_beta = max(best_f_beta, metrics["f_beta"])
             best_epoch = epoch
             epochs_without_improvement = 0
             torch.save(ckpt, ckpt_dir / "best.pt")
@@ -755,6 +797,7 @@ def train(
             batch_size=batch_size,
             pos_weight=pos_weight,
             pred_threshold=pred_thr,
+            f_beta=f_beta_val,
             save_report=ckpt_dir / "test_clip_metrics.json",
         )
     if not quiet:
@@ -772,6 +815,7 @@ def train(
             "weight_decay": wd,
             "pos_weight": pos_weight,
             "pred_threshold": pred_thr,
+            "f_beta": f_beta_val,
             "head_dropout": hd,
             "boundary_margin": bmargin,
             "train_frame_stride": frame_stride,
@@ -804,6 +848,7 @@ def eval_checkpoint(
     backbone = str(config.get("backbone", BACKBONE))
     tversky_alpha, tversky_beta = tversky_coefficients_from_config(config)
     pos_weight = pos_weight_from_config(config)
+    f_beta_val = float(config.get("f_beta", DEFAULT_F_BETA))
     pred_thr = (
         pred_threshold_from_config(config)
         if pred_threshold is None
@@ -812,7 +857,7 @@ def eval_checkpoint(
     test_ids = resolved_test_clip_ids_from_config(config)
     print(
         f"checkpoint={checkpoint.name} device={dev} test clips={len(test_ids)} "
-        f"tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
+        f"f_beta={f_beta_val} tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
         f"pred_threshold={pred_thr}"
     )
 
@@ -837,6 +882,7 @@ def eval_checkpoint(
         batch_size=batch_size,
         pos_weight=pos_weight,
         pred_threshold=pred_thr,
+        f_beta=f_beta_val,
     )
 
 
@@ -857,7 +903,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip training; run per-clip test metrics from a checkpoint",
     )
-    p.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
+    p.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help=f"Checkpoint file (default: <checkpoint-dir>/best.pt or {DEFAULT_CHECKPOINT.relative_to(REPO_ROOT)}).",
+    )
     p.add_argument("--force-extract", action="store_true", help="Re-run CNN for test clips")
     p.add_argument(
         "--pred-threshold",
@@ -875,15 +926,17 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--checkpoint-metric",
-        choices=("loss", "recall", "cost"),
+        choices=("loss", "recall", "cost", "f_beta"),
         default=DEFAULT_CHECKPOINT_METRIC,
-        help="Save best.pt when this test metric improves (default: loss).",
+        help="Save best.pt when this test metric improves (default: loss). "
+        "f_beta uses thresholded F_beta from --f-beta.",
     )
     p.add_argument(
         "--checkpoint-dir",
         type=Path,
         default=None,
-        help=f"Directory for best.pt / last.pt (default: {CHECKPOINT_DIR.relative_to(REPO_ROOT)}).",
+        help=f"Directory for best.pt / last.pt (default: {CHECKPOINT_DIR.relative_to(REPO_ROOT)}). "
+        "With --eval-only, loads <dir>/best.pt when --checkpoint is omitted.",
     )
     p.add_argument(
         "--boundary-margin",
@@ -892,7 +945,15 @@ def parse_args() -> argparse.Namespace:
         metavar="N",
         help="Exclude frames within N indices of each 0/1 label transition from train and test "
         f"loss (default: {DEFAULT_BOUNDARY_MARGIN}; try {WINDOW_RADIUS} to match the 30-frame "
-        "window). Thresholded recall/precision/F1 still use all frames.",
+        "window). Thresholded recall/precision/F_beta still use all frames.",
+    )
+    p.add_argument(
+        "--f-beta",
+        type=float,
+        default=DEFAULT_F_BETA,
+        metavar="B",
+        help=f"F_beta and Tversky recall emphasis (default: {DEFAULT_F_BETA}; "
+        "2 weights recall 2x vs precision).",
     )
     p.add_argument(
         "--train-frame-stride",
@@ -917,8 +978,9 @@ if __name__ == "__main__":
     args = parse_args()
     try:
         if args.eval_only:
+            ckpt_path = resolve_checkpoint_path(args.checkpoint, args.checkpoint_dir)
             eval_checkpoint(
-                args.checkpoint,
+                ckpt_path,
                 device=args.device,
                 batch_size=args.batch_size,
                 force_extract=args.force_extract,
@@ -932,6 +994,7 @@ if __name__ == "__main__":
                 lr=args.lr,
                 weight_decay=args.weight_decay,
                 pred_threshold=args.pred_threshold,
+                f_beta=args.f_beta,
                 head_dropout=args.head_dropout,
                 checkpoint_metric=args.checkpoint_metric,
                 checkpoint_dir=args.checkpoint_dir,
