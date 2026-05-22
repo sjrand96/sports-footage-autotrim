@@ -99,11 +99,11 @@ def export_clip_predictions(
 
     df = pd.DataFrame(
         {
-            "clip_id": clip_id,
+            "clip_key": clip_id,
             "frame_idx": frame_idx,
             "prob_playing": prob,
             "pred_playing": pred,
-            "true_playing": label,
+            "is_playing": label,
         }
     )
 
