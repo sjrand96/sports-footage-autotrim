@@ -131,7 +131,7 @@ def train_test_split() -> None:
 
     for path, rows in ((TRAIN_CSV, train), (TEST_CSV, test)):
         with path.open("w", encoding="utf-8", newline="") as f:
-            csv.writer(f).writerows([[c["clip_id"]] for c in rows])
+            csv.writer(f, lineterminator="\n").writerows([[c["clip_id"]] for c in rows])
 
     META_JSON.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
