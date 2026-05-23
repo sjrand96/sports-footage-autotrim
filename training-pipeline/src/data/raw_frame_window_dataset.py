@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -122,27 +123,52 @@ def _resize_frames(frames: np.ndarray, size: int) -> np.ndarray:
         return np.stack(resized, axis=0)
 
 
-def _load_frames_by_indices(clip_path: str, indices: Sequence[int], image_size: int) -> np.ndarray:
-    try:
-        from decord import VideoReader  # type: ignore
+def _load_frames_by_indices(
+    clip_path: str,
+    indices: Sequence[int],
+    image_size: int,
+    *,
+    use_opencv: bool = False,
+) -> np.ndarray:
+    if not use_opencv:
+        try:
+            from decord import VideoReader  # type: ignore
 
-        vr = VideoReader(clip_path)
-        n = len(vr)
-        frames = np.zeros((len(indices), image_size, image_size, 3), dtype=np.uint8)
-        valid_positions: List[int] = []
-        valid_indices: List[int] = []
-        for pos, idx in enumerate(indices):
-            if 0 <= idx < n:
-                valid_positions.append(pos)
-                valid_indices.append(int(idx))
-        if valid_indices:
-            batch = vr.get_batch(valid_indices).asnumpy()
-            batch = _resize_frames(batch, image_size)
-            for pos, frame in zip(valid_positions, batch):
-                frames[pos] = frame
-        return frames
-    except ImportError:
-        return _load_frames_by_indices_opencv(clip_path, indices, image_size)
+            vr = VideoReader(clip_path)
+            n = len(vr)
+            frames = np.zeros((len(indices), image_size, image_size, 3), dtype=np.uint8)
+            valid_positions: List[int] = []
+            valid_indices: List[int] = []
+            for pos, idx in enumerate(indices):
+                if 0 <= idx < n:
+                    valid_positions.append(pos)
+                    valid_indices.append(int(idx))
+            if valid_indices:
+                batch = vr.get_batch(valid_indices).asnumpy()
+                batch = _resize_frames(batch, image_size)
+                for pos, frame in zip(valid_positions, batch):
+                    frames[pos] = frame
+            return frames
+        except ImportError:
+            pass
+    return _load_frames_by_indices_opencv(clip_path, indices, image_size)
+
+
+def _load_frames_from_reader(reader: "VideoReader", indices: Sequence[int], image_size: int) -> np.ndarray:
+    n = len(reader)
+    frames = np.zeros((len(indices), image_size, image_size, 3), dtype=np.uint8)
+    valid_positions: List[int] = []
+    valid_indices: List[int] = []
+    for pos, idx in enumerate(indices):
+        if 0 <= idx < n:
+            valid_positions.append(pos)
+            valid_indices.append(int(idx))
+    if valid_indices:
+        batch = reader.get_batch(valid_indices).asnumpy()
+        batch = _resize_frames(batch, image_size)
+        for pos, frame in zip(valid_positions, batch):
+            frames[pos] = frame
+    return frames
 
 
 def _load_frames_by_indices_opencv(clip_path: str, indices: Sequence[int], image_size: int) -> np.ndarray:
@@ -182,6 +208,8 @@ class RawFrameWindowDataset(Dataset):
         image_size: int = 224,
         boundary_margin: int = 0,
         frame_stride: int = 1,
+        max_reader_cache: int = 4,
+        use_opencv: bool = False,
     ) -> None:
         self.s3_cache_dir = s3_cache_dir
         self.clip_cache_dir = clip_cache_dir
@@ -192,10 +220,25 @@ class RawFrameWindowDataset(Dataset):
         self.image_size = int(image_size)
         self.boundary_margin = int(boundary_margin)
         self.frame_stride = int(frame_stride)
+        self.max_reader_cache = int(max_reader_cache)
+        self.use_opencv = bool(use_opencv)
         if self.window_radius <= 0:
             raise ValueError("window_radius must be > 0")
         if self.frame_stride < 1:
             raise ValueError("frame_stride must be >= 1")
+        if self.max_reader_cache < 0:
+            raise ValueError("max_reader_cache must be >= 0")
+
+        self._reader_cache: "OrderedDict[str, Any]" = OrderedDict()
+        self._decord_available = False
+        try:
+            import decord  # type: ignore
+
+            self._decord_available = True
+        except ImportError:
+            self._decord_available = False
+        if self.use_opencv:
+            self._decord_available = False
 
         parquet_paths = _resolve_parquet_sources(parquet_sources)
         df = _read_parquets(parquet_paths, self.s3_cache_dir)
@@ -250,7 +293,25 @@ class RawFrameWindowDataset(Dataset):
         window_indices = _sample_window_indices(window_indices, self.num_frames)
 
         clip_path = self._clip_path(clip_id)
-        frames = _load_frames_by_indices(clip_path, window_indices.tolist(), self.image_size)
+        if self._decord_available and self.max_reader_cache > 0:
+            reader = self._reader_cache.get(clip_path)
+            if reader is None:
+                from decord import VideoReader  # type: ignore
+
+                reader = VideoReader(clip_path)
+                self._reader_cache[clip_path] = reader
+                if len(self._reader_cache) > self.max_reader_cache:
+                    self._reader_cache.popitem(last=False)
+            else:
+                self._reader_cache.move_to_end(clip_path)
+            frames = _load_frames_from_reader(reader, window_indices.tolist(), self.image_size)
+        else:
+            frames = _load_frames_by_indices(
+                clip_path,
+                window_indices.tolist(),
+                self.image_size,
+                use_opencv=self.use_opencv,
+            )
         frames = frames.astype(np.float32) / 255.0
         frames = np.transpose(frames, (0, 3, 1, 2))
 

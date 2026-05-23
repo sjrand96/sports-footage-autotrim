@@ -37,7 +37,14 @@ class WandbLogger:
         if self.enabled and self._wandb:
             self._wandb.log(metrics, step=step)
 
-    def log_confusion_matrix(self, y_true: List[int], y_pred: List[int], labels: List[str]) -> None:
+    def log_confusion_matrix(
+        self,
+        y_true: List[int],
+        y_pred: List[int],
+        labels: List[str],
+        *,
+        step: Optional[int] = None,
+    ) -> None:
         if not (self.enabled and self._wandb):
             return
         try:
@@ -46,18 +53,28 @@ class WandbLogger:
                 preds=y_pred,
                 class_names=labels,
             )
-            self._wandb.log({"confusion_matrix": plot})
+            self._wandb.log({"confusion_matrix": plot}, step=step)
         except Exception:
             counts = np.zeros((len(labels), len(labels)), dtype=int)
             for t, p in zip(y_true, y_pred):
                 counts[t][p] += 1
-            self._wandb.log({"confusion_matrix_counts": self._wandb.Table(data=counts, columns=labels)})
+            self._wandb.log(
+                {"confusion_matrix_counts": self._wandb.Table(data=counts, columns=labels)},
+                step=step,
+            )
 
-    def log_table(self, name: str, columns: List[str], data: Iterable[List[Any]]) -> None:
+    def log_table(
+        self,
+        name: str,
+        columns: List[str],
+        data: Iterable[List[Any]],
+        *,
+        step: Optional[int] = None,
+    ) -> None:
         if not (self.enabled and self._wandb):
             return
         table = self._wandb.Table(columns=columns, data=list(data))
-        self._wandb.log({name: table})
+        self._wandb.log({name: table}, step=step)
 
     def log_media(self, name: str, media: Any) -> None:
         if not (self.enabled and self._wandb):

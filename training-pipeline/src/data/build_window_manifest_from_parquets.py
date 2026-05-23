@@ -43,9 +43,29 @@ def _stem(path_or_uri: str, suffix: str) -> str:
     return name[: -len(suffix)]
 
 
-def _resolve_files(prefix: str, cache_dir: str) -> List[Tuple[str, str, str]]:
+def _resolve_files(prefix: str, cache_dir: str, single_parquet: bool) -> List[Tuple[str, str, str]]:
     feature_suffix = "_features.parquet"
     pred_suffix = "_predictions.parquet"
+    if single_parquet:
+        suffix = ".parquet"
+        if is_s3_uri(prefix):
+            parquet_files = _list_s3_keys(prefix, suffix)
+        else:
+            parquet_files = _list_local_files(prefix, suffix)
+        parquet_files = [
+            path
+            for path in parquet_files
+            if not (path.endswith(feature_suffix) or path.endswith(pred_suffix))
+        ]
+        if not parquet_files:
+            raise RuntimeError(f"No single-clip parquet files found under {prefix}.")
+        pairs = []
+        for path in parquet_files:
+            stem = _stem(path, suffix)
+            resolved = download_s3_uri(path, cache_dir) if is_s3_uri(path) else path
+            pairs.append((stem, resolved, resolved))
+        return pairs
+
     if is_s3_uri(prefix):
         feature_files = _list_s3_keys(prefix, feature_suffix)
         pred_files = _list_s3_keys(prefix, pred_suffix)
@@ -150,6 +170,11 @@ def main() -> None:
     parser.add_argument("--window-sizes-sec", default="2,3,4")
     parser.add_argument("--stride-sec", type=float, default=1.0)
     parser.add_argument("--min-positive-ratio", type=float, default=0.5)
+    parser.add_argument(
+        "--single-parquet",
+        action="store_true",
+        help="Use one parquet per clip (must include timestamp_sec and is_playing columns).",
+    )
     args = parser.parse_args()
 
     try:
@@ -159,7 +184,7 @@ def main() -> None:
 
     window_sizes = [float(x) for x in args.window_sizes_sec.split(",") if x.strip()]
     rows: List[Dict[str, Any]] = []
-    for stem, feat_path, pred_path in _resolve_files(args.parquet_prefix, args.s3_cache_dir):
+    for stem, feat_path, pred_path in _resolve_files(args.parquet_prefix, args.s3_cache_dir, args.single_parquet):
         df_feat = pd.read_parquet(feat_path)
         df_pred = pd.read_parquet(pred_path)
         rows.extend(

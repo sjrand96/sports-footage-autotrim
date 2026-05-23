@@ -66,15 +66,18 @@ def _load_frames(clip_path: str, start: float, end: float, num_frames: int) -> n
     except ImportError:
         return _load_frames_opencv(clip_path, start, end, num_frames)
 
-    vr = VideoReader(clip_path)
-    fps = vr.get_avg_fps()
-    start_idx = int(start * fps)
-    end_idx = int(end * fps)
-    end_idx = max(start_idx + 1, end_idx)
-    indices = np.linspace(start_idx, end_idx - 1, num=num_frames)
-    indices = np.clip(indices.astype(int), 0, len(vr) - 1)
-    frames = vr.get_batch(indices).asnumpy()
-    return frames
+    try:
+        vr = VideoReader(clip_path)
+        fps = vr.get_avg_fps()
+        start_idx = int(start * fps)
+        end_idx = int(end * fps)
+        end_idx = max(start_idx + 1, end_idx)
+        indices = np.linspace(start_idx, end_idx - 1, num=num_frames)
+        indices = np.clip(indices.astype(int), 0, len(vr) - 1)
+        frames = vr.get_batch(indices).asnumpy()
+        return frames
+    except Exception:
+        return _load_frames_opencv(clip_path, start, end, num_frames)
 
 
 def _load_frames_opencv(clip_path: str, start: float, end: float, num_frames: int) -> np.ndarray:
@@ -148,6 +151,7 @@ class VideoWindowDataset(Dataset):
         clip_duration_sec: float = 60.0,
         num_frames: int = 16,
         use_raw_frames: bool = False,
+        e2e_only: bool = False,
     ) -> None:
         self.s3_cache_dir = s3_cache_dir or os.path.join(os.getcwd(), "data", "s3_cache")
         self.clip_cache_dir = clip_cache_dir or os.path.join(self.s3_cache_dir, "clips")
@@ -159,6 +163,7 @@ class VideoWindowDataset(Dataset):
         self.clip_duration_sec = clip_duration_sec
         self.num_frames = num_frames
         self.use_raw_frames = use_raw_frames
+        self.e2e_only = e2e_only
         self._e2e_cache: Dict[str, Any] = {}
 
     def __len__(self) -> int:
@@ -193,7 +198,19 @@ class VideoWindowDataset(Dataset):
         root = self.e2e_features_dir.rstrip("/")
         for name in _candidate_feature_names(clip_id):
             if is_s3_uri(root):
-                return download_s3_uri(f"{root}/{name}", self.s3_cache_dir)
+                try:
+                    return download_s3_uri(f"{root}/{name}", self.s3_cache_dir)
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    try:
+                        from botocore.exceptions import ClientError  # type: ignore
+                    except ImportError:
+                        raise
+                    if not isinstance(exc, ClientError):
+                        raise
+                    code = str(exc.response.get("Error", {}).get("Code", ""))
+                    if code not in {"404", "NoSuchKey", "NotFound"}:
+                        raise
+                    continue
             path = os.path.join(root, name)
             if os.path.exists(path):
                 return path
@@ -275,18 +292,23 @@ class VideoWindowDataset(Dataset):
     def __getitem__(self, index: int) -> Tuple[torch.Tensor | Dict[str, torch.Tensor], torch.Tensor, Dict[str, Any]]:
         row = self.rows[index]
         tensors: Dict[str, torch.Tensor] = {}
-        if self.use_raw_frames:
-            tensors["video"] = self._load_raw_window(row)
-        else:
-            if not self.features_dir:
-                raise ValueError("features_dir is required when use_raw_frames is False")
-            tensors["video"] = self._load_feature_window(row)
-
-        if self.e2e_features_dir:
+        if self.e2e_only:
+            if not self.e2e_features_dir:
+                raise ValueError("e2e_features_dir is required when e2e_only is True")
             tensors["e2e"] = self._load_e2e_frame_features(row)
+        else:
+            if self.use_raw_frames:
+                tensors["video"] = self._load_raw_window(row)
+            else:
+                if not self.features_dir:
+                    raise ValueError("features_dir is required when use_raw_frames is False")
+                tensors["video"] = self._load_feature_window(row)
+
+            if self.e2e_features_dir:
+                tensors["e2e"] = self._load_e2e_frame_features(row)
 
         features: torch.Tensor | Dict[str, torch.Tensor]
-        features = tensors["video"] if len(tensors) == 1 else tensors
+        features = tensors["video"] if len(tensors) == 1 and "video" in tensors else tensors["e2e"] if len(tensors) == 1 else tensors
 
         label = torch.tensor(int(row["label"]), dtype=torch.long)
         meta = {

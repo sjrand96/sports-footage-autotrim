@@ -76,6 +76,8 @@ class TrainConfig:
     early_stop_patience: int | None = None
     num_workers: int = 2
     log_every: int = 20
+    max_reader_cache: int = 4
+    use_opencv: bool = False
     device: str | None = None
     finetune_encoder: bool = False
     encoder_lr: float | None = None
@@ -339,6 +341,8 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         image_size=cfg.image_size,
         boundary_margin=cfg.boundary_margin,
         frame_stride=cfg.train_frame_stride,
+        max_reader_cache=cfg.max_reader_cache,
+        use_opencv=cfg.use_opencv,
     )
     test_ds = RawFrameWindowDataset(
         [cfg.test_parquet],
@@ -349,6 +353,8 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         image_size=cfg.image_size,
         boundary_margin=cfg.boundary_margin,
         frame_stride=1,
+        max_reader_cache=cfg.max_reader_cache,
+        use_opencv=cfg.use_opencv,
     )
 
     n_pos, n_neg = train_label_counts(
@@ -360,12 +366,20 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
     tversky_alpha, tversky_beta = tversky_coefficients_from_counts(n_pos, n_neg)
     pos_weight = class_weight_ratio_from_counts(n_pos, n_neg)
 
+    pin_memory = dev.type == "cuda"
+    persistent_workers = cfg.num_workers > 0
+    loader_kwargs: dict[str, Any] = {"pin_memory": pin_memory}
+    if persistent_workers:
+        loader_kwargs["persistent_workers"] = True
+        loader_kwargs["prefetch_factor"] = 2
+
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.batch_size,
         shuffle=True,
         num_workers=cfg.num_workers,
         collate_fn=collate_raw_frame_windows,
+        **loader_kwargs,
     )
     test_loader = DataLoader(
         test_ds,
@@ -373,6 +387,7 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         shuffle=False,
         num_workers=cfg.num_workers,
         collate_fn=collate_raw_frame_windows,
+        **loader_kwargs,
     )
 
     print(
@@ -420,6 +435,7 @@ def train(cfg: TrainConfig) -> dict[str, Any]:
         "window_radius": cfg.window_radius,
         "boundary_margin": cfg.boundary_margin,
         "train_frame_stride": cfg.train_frame_stride,
+        "max_reader_cache": cfg.max_reader_cache,
         "batch_size": cfg.batch_size,
         "epochs": cfg.epochs,
         "lr": cfg.lr,
@@ -642,6 +658,8 @@ def parse_args() -> TrainConfig:
     p.add_argument("--checkpoint-metric", choices=("loss", "recall", "cost"), default="loss")
     p.add_argument("--early-stop-patience", type=int, default=None)
     p.add_argument("--num-workers", type=int, default=2)
+    p.add_argument("--max-reader-cache", type=int, default=4, help="Per-worker LRU cache size for video readers")
+    p.add_argument("--use-opencv", action="store_true", help="Force OpenCV frame decoding instead of decord")
     p.add_argument("--device", default=None, help="cuda, mps, or cpu")
     p.add_argument("--finetune-encoder", action="store_true", help="Allow ResNet encoder weights to update")
     p.add_argument("--encoder-lr", type=float, default=None, help="Optional LR for encoder params")
@@ -673,6 +691,8 @@ def parse_args() -> TrainConfig:
         checkpoint_metric=args.checkpoint_metric,
         early_stop_patience=args.early_stop_patience,
         num_workers=args.num_workers,
+        max_reader_cache=args.max_reader_cache,
+        use_opencv=args.use_opencv,
         device=args.device,
         finetune_encoder=args.finetune_encoder,
         encoder_lr=args.encoder_lr,

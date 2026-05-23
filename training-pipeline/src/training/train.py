@@ -18,6 +18,11 @@ import torchvision.models as models
 from torch import nn
 from torch.utils.data import DataLoader, Subset
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None  # type: ignore[assignment]
+
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
@@ -53,6 +58,7 @@ class TrainConfig:
     s3_cache_dir: str | None = None
     clip_cache_dir: str | None = None
     clip_duration_sec: float = 60.0
+    e2e_only: bool = False
 
 
 def _set_seed(seed: int) -> None:
@@ -144,19 +150,29 @@ def _eval_loader(
     loader: DataLoader,
     device: torch.device,
     frame_encoder: nn.Module | None = None,
-) -> Tuple[List[int], List[int]]:
+    progress_desc: str | None = None,
+) -> Tuple[List[int], List[int], List[float], List[Dict[str, Any]]]:
     model.eval()
-    y_true, y_pred = [], []
+    y_true: List[int] = []
+    y_pred: List[int] = []
+    y_prob: List[float] = []
+    metas: List[Dict[str, Any]] = []
+    iterator = loader
+    if tqdm is not None:
+        iterator = tqdm(loader, desc=progress_desc or "val", leave=False)
     with torch.no_grad():
-        for batch in loader:
-            feats, labels, _ = batch
+        for batch in iterator:
+            feats, labels, batch_meta = batch
             feats = _move_features_to_device(feats, device)
             model_inputs = _prepare_model_inputs(feats, getattr(model, "fusion_mode", "none"), frame_encoder)
             logits = model(model_inputs)
             preds = torch.argmax(logits, dim=1).cpu().tolist()
+            probs = torch.softmax(logits, dim=1)[:, 1].detach().cpu().tolist()
             y_pred.extend(preds)
             y_true.extend(labels.tolist())
-    return y_true, y_pred
+            y_prob.extend(float(p) for p in probs)
+            metas.extend(batch_meta)
+    return y_true, y_pred, y_prob, metas
 
 
 def _precision_recall_f1(y_true: List[int], y_pred: List[int]) -> Tuple[float, float, float]:
@@ -175,29 +191,37 @@ def main() -> None:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--features-dir", default=None)
     parser.add_argument("--pose-dir", default=None)
+    parser.add_argument("--skip-pose", action="store_true", help="Ignore pose features even if provided")
     parser.add_argument("--e2e-features-dir", default=None, help="Local dir or s3:// prefix containing *_features.parquet files.")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--split-field", default="source_id", help="Field to group by when splitting train/val/test")
     parser.add_argument("--use-raw-frames", action="store_true", help="Train on raw frames with a frozen ResNet encoder.")
     parser.add_argument("--fusion", choices=["none", "early", "late"], default=None, help="How to fuse E2E parquet features with video features.")
     parser.add_argument("--e2e-feature-subset", choices=["all", "base"], default=None)
+    parser.add_argument("--e2e-only", action="store_true", help="Train using only E2E parquet features (no video embeddings).")
     parser.add_argument("--s3-cache-dir", default=None, help="Local cache for S3 manifests/features.")
     parser.add_argument("--clip-cache-dir", default=None, help="Local cache for S3 video clips.")
     parser.add_argument("--wandb-project", default="volleyball-playtime")
     parser.add_argument("--wandb-entity", default=None)
     parser.add_argument("--wandb-run", default=None)
+    parser.add_argument("--log-predictions", action="store_true", help="Log per-epoch prediction tables to W&B")
+    parser.add_argument("--predictions-max-rows", type=int, default=500, help="Max rows to log per epoch")
+    parser.add_argument("--predictions-every", type=int, default=1, help="Log predictions every N epochs")
     args = parser.parse_args()
 
     cfg = TrainConfig(
         manifest_path=args.manifest,
         features_dir=args.features_dir,
-        pose_dir=args.pose_dir,
+        pose_dir=None if args.skip_pose else args.pose_dir,
         e2e_features_dir=args.e2e_features_dir,
         output_dir=args.output_dir,
+        split_field=args.split_field,
         use_raw_frames=args.use_raw_frames,
         fusion=args.fusion or "none",
         e2e_feature_subset=args.e2e_feature_subset or "all",
         s3_cache_dir=args.s3_cache_dir,
         clip_cache_dir=args.clip_cache_dir,
+        e2e_only=args.e2e_only,
     )
     if args.config:
         with open(args.config, "r", encoding="utf-8") as handle:
@@ -207,9 +231,12 @@ def main() -> None:
             {
                 "manifest_path": args.manifest,
                 "features_dir": args.features_dir if args.features_dir is not None else merged.get("features_dir"),
-                "pose_dir": args.pose_dir if args.pose_dir is not None else merged.get("pose_dir"),
+                "pose_dir": None
+                if args.skip_pose
+                else (args.pose_dir if args.pose_dir is not None else merged.get("pose_dir")),
                 "e2e_features_dir": args.e2e_features_dir if args.e2e_features_dir is not None else merged.get("e2e_features_dir"),
                 "output_dir": args.output_dir,
+                "split_field": args.split_field,
                 "s3_cache_dir": args.s3_cache_dir if args.s3_cache_dir is not None else merged.get("s3_cache_dir"),
                 "clip_cache_dir": args.clip_cache_dir if args.clip_cache_dir is not None else merged.get("clip_cache_dir"),
             }
@@ -220,13 +247,17 @@ def main() -> None:
             merged["fusion"] = args.fusion
         if args.e2e_feature_subset is not None:
             merged["e2e_feature_subset"] = args.e2e_feature_subset
+        if args.e2e_only:
+            merged["e2e_only"] = True
         cfg = TrainConfig(**merged)
 
     _set_seed(cfg.seed)
     os.makedirs(cfg.output_dir, exist_ok=True)
 
-    if not cfg.use_raw_frames and not cfg.features_dir:
-        raise ValueError("--features-dir is required unless --use-raw-frames is set")
+    if not cfg.use_raw_frames and not cfg.features_dir and not cfg.e2e_only:
+        raise ValueError("--features-dir is required unless --use-raw-frames or --e2e-only is set")
+    if cfg.e2e_only and not cfg.e2e_features_dir:
+        raise ValueError("--e2e-features-dir is required for --e2e-only")
     if cfg.fusion in {"early", "late"} and not cfg.e2e_features_dir:
         raise ValueError("--e2e-features-dir is required for early or late fusion")
 
@@ -241,6 +272,7 @@ def main() -> None:
         clip_duration_sec=cfg.clip_duration_sec,
         num_frames=cfg.num_frames,
         use_raw_frames=cfg.use_raw_frames,
+        e2e_only=cfg.e2e_only,
     )
 
     train_idx, val_idx, _ = _group_split(dataset.rows, cfg.split_field, cfg.split_ratios, cfg.seed)
@@ -286,7 +318,13 @@ def main() -> None:
         model = TransformerClassifier(model_cfg).to(device)
     model.fusion_mode = cfg.fusion  # type: ignore[attr-defined]
 
-    labels = [dataset.rows[i]["label"] for i in train_idx]
+    train_labels = [dataset.rows[i]["label"] for i in train_idx]
+    val_labels = [dataset.rows[i]["label"] for i in val_idx]
+    n_train_pos = int(sum(int(x) for x in train_labels))
+    n_train = len(train_labels)
+    n_val_pos = int(sum(int(x) for x in val_labels))
+    n_val = len(val_labels)
+    labels = train_labels
     class_weights = _compute_class_weights([int(x) for x in labels]).to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
@@ -295,6 +333,23 @@ def main() -> None:
     wandb_logger = WandbLogger(
         WandbConfig(project=args.wandb_project, entity=args.wandb_entity, run_name=args.wandb_run, enabled=True),
         config={**cfg.__dict__, "video_input_dim": video_input_dim, "e2e_input_dim": e2e_dim},
+    )
+
+    print(
+        "label balance: "
+        f"train_pos={n_train_pos}/{n_train} ({n_train_pos / max(n_train, 1):.3f}) "
+        f"val_pos={n_val_pos}/{n_val} ({n_val_pos / max(n_val, 1):.3f})"
+    )
+    wandb_logger.log(
+        {
+            "train_pos": n_train_pos,
+            "train_total": n_train,
+            "train_pos_ratio": n_train_pos / max(n_train, 1),
+            "val_pos": n_val_pos,
+            "val_total": n_val,
+            "val_pos_ratio": n_val_pos / max(n_val, 1),
+        },
+        step=0,
     )
 
     best_f1 = -1.0
@@ -311,7 +366,10 @@ def main() -> None:
     for epoch in range(cfg.epochs):
         model.train()
         total_loss = 0.0
-        for feats, labels, _ in train_loader:
+        train_iter = train_loader
+        if tqdm is not None:
+            train_iter = tqdm(train_loader, desc=f"epoch {epoch + 1}/{cfg.epochs} train", leave=False)
+        for feats, labels, _ in train_iter:
             feats = _move_features_to_device(feats, device)
             labels = labels.to(device)
             model_inputs = _prepare_model_inputs(feats, cfg.fusion, frame_encoder)
@@ -323,9 +381,16 @@ def main() -> None:
             total_loss += loss.item() * labels.size(0)
 
         avg_loss = total_loss / max(1, len(train_loader.dataset))
-        y_true, y_pred = _eval_loader(model, val_loader, device, frame_encoder=frame_encoder)
+        y_true, y_pred, y_prob, y_meta = _eval_loader(
+            model,
+            val_loader,
+            device,
+            frame_encoder=frame_encoder,
+            progress_desc=f"epoch {epoch + 1}/{cfg.epochs} val",
+        )
         precision, recall, f1 = _precision_recall_f1(y_true, y_pred)
 
+        step = epoch + 1
         wandb_logger.log(
             {
                 "train_loss": avg_loss,
@@ -334,9 +399,31 @@ def main() -> None:
                 "val_f1": f1,
                 "epoch": epoch,
             },
-            step=epoch,
+            step=step,
         )
-        wandb_logger.log_confusion_matrix(y_true, y_pred, labels=["downtime", "playtime"])
+        wandb_logger.log_confusion_matrix(y_true, y_pred, labels=["downtime", "playtime"], step=step)
+        if args.log_predictions and (epoch % max(1, args.predictions_every) == 0):
+            rows = []
+            limit = max(0, args.predictions_max_rows)
+            for idx, (meta, truth, pred, prob) in enumerate(zip(y_meta, y_true, y_pred, y_prob)):
+                if limit and idx >= limit:
+                    break
+                rows.append(
+                    [
+                        meta.get("clip_id"),
+                        meta.get("window_start_sec"),
+                        meta.get("window_end_sec"),
+                        int(truth),
+                        int(pred),
+                        float(prob),
+                    ]
+                )
+            wandb_logger.log_table(
+                "val/predictions",
+                ["clip_id", "window_start_sec", "window_end_sec", "label", "pred", "prob_play"],
+                rows,
+                step=step,
+            )
 
         if f1 > best_f1:
             best_f1 = f1
