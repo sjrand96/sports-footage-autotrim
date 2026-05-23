@@ -15,7 +15,7 @@ We frame this as a binary classification task on volleyball video frames: positi
 During this period, we explored several different model architectures to approach this video classification task. 
 
 Our models are able to make reasonable classifications of active play vs downtime in our validation set. (For a more detailed breakdown of model performance and scores, see the “Model Results and Evaluation Metrics” section below). A sample prediction of one of our models is shown below:  
-![Sample model prediction timeline](figures/sample-prediction.png)
+<image src="./figures/sample-prediction.png" width=800>
 
 The model architectures we experimented with are summarized below:
 
@@ -31,14 +31,14 @@ We established a **baseline** approach of keeping every single frame (which matc
 
 We benchmarked all of our models using the **F2 score** (a variant of F1 score that weights recall twice as much as precision, to align with our goal of avoiding cutting out active play). The table below summarizes confusion matrix counts, F2 score, for each model evaluated to date. 
 
-| Model | TP | FP | FN | TN | Precision | Recall | F2 Score | Inference (FPS) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Baseline (keep everything) | 14,422 | 28,143 | 0 | 0 | 0.34 | 1.00 | 0.72 | — |
-| XGBoost (handcrafted features) | 13,712 | 13,024 | 710 | 15,119 | 0.51 | 0.95 | 0.81 | — |
-| CNN+LSTM (frames only / no handcrafted features) | 13,698 | 9,463 | 724 | 18,680 | 0.591 | 0.950 | 0.847 | — |
-| Transformer (handcrafted features only) | 10,530 | 5,795 | 3,892 | 22,348 | 0.645 | 0.730 | 0.711 | — |
-| Transformer (frames only / no handcrafted features) | 11,032 | 2,567 | 3,390 | 25,576 | 0.811 | 0.765 | 0.774 | — |
-| Transformer (frames + handcrafted features / early fusion) | 12,457 | 3,374 | 1,965 | 24,769 | 0.787 | 0.864 | 0.847 | — |
+| Model | TP | FP | FN | TN | Precision | Recall | F2 Score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline (keep everything) | 14,422 | 28,143 | 0 | 0 | 0.34 | 1.00 | 0.72 |
+| XGBoost (handcrafted features) | 13,712 | 13,024 | 710 | 15,119 | 0.51 | 0.95 | 0.81 |
+| CNN+LSTM (frames only / no handcrafted features) | 13,698 | 9,463 | 724 | 18,680 | 0.591 | 0.950 | 0.847 |
+| Transformer (handcrafted features only) | 10,530 | 5,795 | 3,892 | 22,348 | 0.645 | 0.730 | 0.711 |
+| Transformer (frames only / no handcrafted features) | 11,032 | 2,567 | 3,390 | 25,576 | 0.811 | 0.765 | 0.774 |
+| Transformer (frames + handcrafted features / early fusion) | 12,457 | 3,374 | 1,965 | 24,769 | 0.787 | 0.864 | 0.847 |
 
 Almost all of our models were able to outperform the baseline approach in terms of F2 score.
 
