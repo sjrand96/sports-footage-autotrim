@@ -1,5 +1,5 @@
-CKPT="models/lstm/checkpoints/2026-05-27-12:37-cnn-lstm/best.pt"
-OUT="models/lstm/predictions/2026-05-27-12:37-cnn-lstm"
+CKPT="models/lstm/checkpoints/2026-05-27-13:22-cnn-lstm-fbeta/best.pt"
+OUT="models/lstm/predictions/2026-05-27-13:22-cnn-lstm-fbeta"
 mkdir -p "$OUT"
 
 while IFS= read -r clip_id || [[ -n "$clip_id" ]]; do
