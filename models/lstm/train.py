@@ -39,7 +39,6 @@ from models.lstm.dataset import (  # noqa: E402
     DEFAULT_TEST_CLIPS_CSV,
     DEFAULT_TRAIN_CLIPS_CSV,
     FeatureWindowDataset,
-    WINDOW_RADIUS,
     DEFAULT_F_BETA,
     class_weight_ratio_from_counts,
     f_beta_score,
@@ -52,7 +51,7 @@ from models.lstm.dataset import (  # noqa: E402
 )
 from models.lstm.encoders import default_backbone, get_encoder, resolve_device  # noqa: E402
 from models.lstm.extract_features import ensure_features_for_clips  # noqa: E402
-from models.lstm.model import TemporalPlayingClassifier  # noqa: E402
+from models.lstm.model import WINDOW_RADIUS, TemporalPlayingClassifier  # noqa: E402
 
 FRAME_LABELS_CSV = REPO_ROOT / "data" / "preprocessed_labels" / "frame_labels.csv"
 FEATURES_ROOT = REPO_ROOT / "data" / "preprocessed_features"

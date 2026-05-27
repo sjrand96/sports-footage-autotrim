@@ -10,14 +10,13 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+from models.lstm.model import WINDOW_RADIUS, WINDOW_SIZE
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRAME_LABELS_CSV = REPO_ROOT / "data" / "preprocessed_labels" / "frame_labels.csv"
 DEFAULT_TRAIN_CLIPS_CSV = REPO_ROOT / "data" / "train_clips.csv"
 DEFAULT_TEST_CLIPS_CSV = REPO_ROOT / "data" / "test_clips.csv"
 DEFAULT_FEATURES_ROOT = REPO_ROOT / "data" / "preprocessed_features"
-
-WINDOW_SIZE = 30
-WINDOW_RADIUS = 15  # T-15 .. T+14 inclusive
 DEFAULT_BOUNDARY_MARGIN = 0  # frames to drop from loss on each side of a 0/1 transition
 DEFAULT_FRAME_STRIDE = 1  # train: use every Nth frame; test/eval always stride 1
 # F-beta and Tversky: beta>1 weights recall over precision (beta=2 => F2).

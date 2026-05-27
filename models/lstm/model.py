@@ -5,8 +5,11 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-WINDOW_SIZE = 30
-CENTER_INDEX = 15  # T-15 .. T+14 → center at 15
+WINDOW_SIZE = 90
+WINDOW_RADIUS = WINDOW_SIZE // 2
+# Offsets are built as [-WINDOW_RADIUS, ..., -1, 0, 1, ..., WINDOW_RADIUS-1] (len=WINDOW_SIZE),
+# so the 0-offset (target frame) sits at index WINDOW_RADIUS.
+CENTER_INDEX = WINDOW_RADIUS
 
 
 class TemporalPlayingClassifier(nn.Module):
