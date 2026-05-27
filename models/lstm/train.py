@@ -1,0 +1,1007 @@
+#!/usr/bin/env python3
+"""Train BiLSTM on cached features; print per-clip test metrics when done.
+
+Prerequisites::
+
+    python data/preprocess_labels.py
+    python data/train_test_split.py
+    python models/lstm/extract_features.py
+    python models/lstm/train.py
+
+Re-run test evaluation only::
+
+    python models/lstm/train.py --eval-only --device mps \\
+        --checkpoint-dir models/lstm/checkpoints/<run-id>
+
+After training, writes ``loss_history.json`` and ``loss_curve.png`` under the checkpoint dir.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from models.lstm.dataset import (  # noqa: E402
+    DEFAULT_BOUNDARY_MARGIN,
+    DEFAULT_FRAME_STRIDE,
+    DEFAULT_TEST_CLIPS_CSV,
+    DEFAULT_TRAIN_CLIPS_CSV,
+    FeatureWindowDataset,
+    WINDOW_RADIUS,
+    DEFAULT_F_BETA,
+    class_weight_ratio_from_counts,
+    f_beta_score,
+    tversky_coefficients_from_f_beta,
+    clip_to_source_map,
+    list_clip_ids,
+    load_labels_by_clip,
+    load_train_test_clip_ids,
+    train_label_counts,
+)
+from models.lstm.encoders import default_backbone, get_encoder, resolve_device  # noqa: E402
+from models.lstm.extract_features import ensure_features_for_clips  # noqa: E402
+from models.lstm.model import TemporalPlayingClassifier  # noqa: E402
+
+FRAME_LABELS_CSV = REPO_ROOT / "data" / "preprocessed_labels" / "frame_labels.csv"
+FEATURES_ROOT = REPO_ROOT / "data" / "preprocessed_features"
+CHECKPOINT_DIR = REPO_ROOT / "models" / "lstm" / "checkpoints"
+DEFAULT_CHECKPOINT = CHECKPOINT_DIR / "best.pt"
+
+BACKBONE = default_backbone()
+TRAIN_CLIPS_CSV = DEFAULT_TRAIN_CLIPS_CSV
+TEST_CLIPS_CSV = DEFAULT_TEST_CLIPS_CSV
+BATCH_SIZE = 32
+EPOCHS = 10
+LR = 1e-4
+WEIGHT_DECAY = 1e-4  # AdamW L2; set 0 to disable
+NUM_WORKERS = 0
+# Playing vs inactive at inference; lower => higher recall.
+DEFAULT_PRED_THRESHOLD = 0.35
+
+# Temporal head (smaller + dropout to reduce overfitting)
+LSTM_HIDDEN_SIZE = 128
+LSTM_NUM_LAYERS = 1
+LSTM_DROPOUT = 0.0  # only used when LSTM_NUM_LAYERS > 1 (between LSTM layers)
+HEAD_DROPOUT = 0.3  # on BiLSTM output before the linear head (active in train mode)
+DEFAULT_CHECKPOINT_METRIC = "loss"  # loss | recall | cost | f_beta
+TVERSKY_SMOOTH = 1e-6
+
+
+def temporal_model_from_config(feat_dim: int, config: dict) -> TemporalPlayingClassifier:
+    """Build the head with sizes from ``config``; defaults match pre-refactor checkpoints."""
+    return TemporalPlayingClassifier(
+        feat_dim,
+        hidden_size=int(config.get("lstm_hidden_size", 128)),
+        num_layers=int(config.get("lstm_num_layers", 1)),
+        dropout=float(config.get("lstm_dropout", 0.0)),
+        head_dropout=float(config.get("head_dropout", 0.0)),
+    )
+
+
+def pos_weight_from_config(config: dict) -> float:
+    """Cost FN weight from checkpoint config (inverse-frequency ``pos_weight``; legacy keys supported)."""
+    if "pos_weight" in config:
+        return float(config["pos_weight"])
+    if "fn_fp_weight_ratio" in config:
+        return float(config["fn_fp_weight_ratio"])
+    if "pos_weight_positive" in config:
+        return float(config["pos_weight_positive"])
+    fn_c, fp_c = config.get("fn_cost"), config.get("fp_cost")
+    if fn_c is not None and fp_c is not None:
+        fp = float(fp_c)
+        if fp > 0:
+            return float(fn_c) / fp
+    return 1.0
+
+
+def tversky_coefficients_from_config(config: dict) -> tuple[float, float]:
+    if "tversky_alpha" in config and "tversky_beta" in config:
+        alpha = float(config["tversky_alpha"])
+        beta = float(config["tversky_beta"])
+        total = alpha + beta
+        if total <= 0:
+            return 0.5, 0.5
+        return alpha / total, beta / total
+    f_beta = float(config.get("f_beta", DEFAULT_F_BETA))
+    return tversky_coefficients_from_f_beta(f_beta)
+
+
+def pred_threshold_from_config(config: dict) -> float:
+    if "pred_threshold" in config:
+        return float(config["pred_threshold"])
+    return DEFAULT_PRED_THRESHOLD
+
+
+def resolve_checkpoint_path(
+    checkpoint: Path | None,
+    checkpoint_dir: Path | None,
+) -> Path:
+    """Resolve weights file: explicit ``--checkpoint`` > ``--checkpoint-dir``/best.pt > default."""
+    if checkpoint is not None:
+        return checkpoint
+    if checkpoint_dir is not None:
+        return checkpoint_dir / "best.pt"
+    return DEFAULT_CHECKPOINT
+
+
+def tversky_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    alpha: float,
+    beta: float,
+    smooth: float = TVERSKY_SMOOTH,
+) -> torch.Tensor:
+    """``1 - Tversky`` on sigmoid probabilities (batch-level scalar)."""
+    probs = torch.sigmoid(logits)
+    t = targets.to(dtype=probs.dtype)
+    tp = (probs * t).sum()
+    fp = (probs * (1.0 - t)).sum()
+    fn = ((1.0 - probs) * t).sum()
+    tversky = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
+    return 1.0 - tversky
+
+
+def masked_tversky_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    alpha: float,
+    beta: float,
+    smooth: float = TVERSKY_SMOOTH,
+) -> torch.Tensor:
+    """Tversky loss over samples with ``mask > 0`` (boundary frames excluded)."""
+    weighted, denom = masked_tversky_loss_sum(
+        logits, targets, mask, alpha=alpha, beta=beta, smooth=smooth
+    )
+    if denom <= 0:
+        return weighted.sum() * 0.0
+    return weighted / denom
+
+
+def masked_tversky_loss_sum(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    alpha: float,
+    beta: float,
+    smooth: float = TVERSKY_SMOOTH,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return ``(loss * mask_sum, mask_sum)`` for global epoch/loader averaging."""
+    probs = torch.sigmoid(logits)
+    m = mask.to(dtype=probs.dtype)
+    t = targets.to(dtype=probs.dtype)
+    tp = (probs * t * m).sum()
+    fp = (probs * (1.0 - t) * m).sum()
+    fn = ((1.0 - probs) * t * m).sum()
+    denom = m.sum()
+    tversky = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
+    loss = 1.0 - tversky
+    return loss * denom, denom
+
+
+def binary_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    pos_weight: float,
+    f_beta: float = DEFAULT_F_BETA,
+) -> dict[str, float]:
+    """Thresholded frame metrics; ``cost = pos_weight * FN + FP``."""
+    yt = y_true.astype(np.int64).ravel()
+    yp = y_pred.astype(np.int64).ravel()
+    tp = int(((yp == 1) & (yt == 1)).sum())
+    fp = int(((yp == 1) & (yt == 0)).sum())
+    tn = int(((yp == 0) & (yt == 0)).sum())
+    fn = int(((yp == 0) & (yt == 1)).sum())
+    precision = tp / max(tp + fp, 1)
+    recall = tp / max(tp + fn, 1)
+    f_beta_val = f_beta_score(precision, recall, f_beta)
+    n = tp + fp + tn + fn
+    return {
+        "tp": float(tp),
+        "fp": float(fp),
+        "tn": float(tn),
+        "fn": float(fn),
+        "precision": precision,
+        "recall": recall,
+        "f_beta": f_beta_val,
+        "accuracy": (tp + tn) / max(n, 1),
+        "cost": pos_weight * fn + fp,
+        "n_frames": float(n),
+    }
+
+
+def load_feature_meta(backbone: str) -> dict:
+    meta_path = FEATURES_ROOT / backbone / "meta.json"
+    if not meta_path.is_file():
+        raise RuntimeError(
+            f"missing {meta_path}; run: python models/lstm/extract_features.py"
+        )
+    return json.loads(meta_path.read_text(encoding="utf-8"))
+
+
+def _path_for_config(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return str(path.resolve())
+
+
+def _clip_list_path_from_config(config: dict, key: str, default: Path) -> Path:
+    raw = config.get(key)
+    if raw is None:
+        return default
+    path = Path(str(raw))
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def resolved_test_clip_ids_from_config(config: dict) -> list[str]:
+    """Test clip ids from checkpoint config, or reload from train/test CSV paths."""
+    if explicit := config.get("test_clip_ids"):
+        return list(explicit)
+    train_csv = _clip_list_path_from_config(config, "train_clips_csv", TRAIN_CLIPS_CSV)
+    test_csv = _clip_list_path_from_config(config, "test_clips_csv", TEST_CLIPS_CSV)
+    _, test_ids = load_train_test_clip_ids(
+        train_csv=train_csv,
+        test_csv=test_csv,
+        labeled_clip_ids=list_clip_ids(FRAME_LABELS_CSV),
+    )
+    return test_ids
+
+
+def collate_batch(batch: list[dict]) -> dict:
+    return {
+        "seq": torch.stack([b["seq"] for b in batch], dim=0),
+        "label": torch.stack([b["label"] for b in batch], dim=0),
+        "loss_mask": torch.stack([b["loss_mask"] for b in batch], dim=0),
+        "clip_id": [b["clip_id"] for b in batch],
+        "frame_idx": torch.tensor([b["frame_idx"] for b in batch], dtype=torch.long),
+    }
+
+
+def evaluate_loader(
+    model: TemporalPlayingClassifier,
+    loader: DataLoader,
+    device: torch.device,
+    pos_weight: float,
+    *,
+    tversky_alpha: float,
+    tversky_beta: float,
+    boundary_margin: int = 0,
+    pred_threshold: float = DEFAULT_PRED_THRESHOLD,
+    f_beta: float = DEFAULT_F_BETA,
+) -> dict[str, float]:
+    model.eval()
+    loss_sum = 0.0
+    mask_sum = 0.0
+    y_true: list[np.ndarray] = []
+    y_pred: list[np.ndarray] = []
+
+    with torch.no_grad():
+        for batch in loader:
+            seq = batch["seq"].to(device)
+            labels = batch["label"].to(device).unsqueeze(1)
+            logits = model(seq)
+            if boundary_margin > 0:
+                loss_mask = batch["loss_mask"].to(device).unsqueeze(1)
+                wsum, msum = masked_tversky_loss_sum(
+                    logits,
+                    labels,
+                    loss_mask,
+                    alpha=tversky_alpha,
+                    beta=tversky_beta,
+                )
+                loss_sum += float(wsum.item())
+                mask_sum += float(msum.item())
+            else:
+                loss = tversky_loss(
+                    logits, labels, alpha=tversky_alpha, beta=tversky_beta
+                )
+                n = float(labels.numel())
+                loss_sum += float(loss.item()) * n
+                mask_sum += n
+            probs = torch.sigmoid(logits).cpu().numpy().ravel()
+            preds = (probs >= pred_threshold).astype(np.int64)
+            y_true.append(labels.long().cpu().numpy().ravel())
+            y_pred.append(preds)
+
+    metrics = binary_metrics(
+        np.concatenate(y_true),
+        np.concatenate(y_pred),
+        pos_weight=pos_weight,
+        f_beta=f_beta,
+    )
+    metrics["loss"] = loss_sum / max(mask_sum, 1.0)
+    return metrics
+
+
+def predict_clip(
+    model: TemporalPlayingClassifier,
+    clip_id: str,
+    *,
+    backbone: str,
+    labels_by_clip: dict[str, np.ndarray],
+    device: torch.device,
+    batch_size: int,
+    pred_threshold: float = DEFAULT_PRED_THRESHOLD,
+) -> tuple[np.ndarray, np.ndarray]:
+    ds = FeatureWindowDataset([clip_id], backbone=backbone, labels_by_clip=labels_by_clip)
+    loader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        collate_fn=collate_batch,
+    )
+
+    frame_indices: list[int] = []
+    y_true: list[float] = []
+    y_prob: list[float] = []
+
+    model.eval()
+    with torch.no_grad():
+        for batch in loader:
+            logits = model(batch["seq"].to(device))
+            probs = torch.sigmoid(logits).cpu().numpy().ravel()
+            frame_indices.extend(batch["frame_idx"].tolist())
+            y_true.extend(batch["label"].cpu().numpy().ravel().tolist())
+            y_prob.extend(probs.tolist())
+
+    order = np.argsort(frame_indices)
+    yt = np.asarray(y_true, dtype=np.int64)[order]
+    yp = (np.asarray(y_prob, dtype=np.float64)[order] >= pred_threshold).astype(np.int64)
+    return yt, yp
+
+
+def format_metrics_row(clip_id: str, m: dict[str, float]) -> str:
+    return (
+        f"{clip_id:20s}  "
+        f"recall={m['recall']:.3f}  precision={m['precision']:.3f}  "
+        f"f_beta={m['f_beta']:.3f}  "
+        f"acc={m['accuracy']:.3f}  cost={m['cost']:.0f}  "
+        f"TP={int(m['tp']):4d} FP={int(m['fp']):4d} TN={int(m['tn']):4d} FN={int(m['fn']):4d}  "
+        f"n={int(m['n_frames'])}"
+    )
+
+
+def evaluate_test_clips(
+    model: TemporalPlayingClassifier,
+    test_ids: list[str],
+    *,
+    backbone: str,
+    labels_by_clip: dict[str, np.ndarray],
+    device: torch.device,
+    batch_size: int,
+    pos_weight: float,
+    pred_threshold: float = DEFAULT_PRED_THRESHOLD,
+    f_beta: float = DEFAULT_F_BETA,
+    save_report: Path | None = CHECKPOINT_DIR / "test_clip_metrics.json",
+) -> dict:
+    """Per-clip and pooled frame metrics on held-out clips."""
+    per_clip: dict[str, dict] = {}
+    all_true: list[np.ndarray] = []
+    all_pred: list[np.ndarray] = []
+
+    print(f"\n=== test set inference (threshold={pred_threshold}) ===")
+    for clip_id in test_ids:
+        yt, yp = predict_clip(
+            model,
+            clip_id,
+            backbone=backbone,
+            labels_by_clip=labels_by_clip,
+            device=device,
+            batch_size=batch_size,
+            pred_threshold=pred_threshold,
+        )
+        m = binary_metrics(yt, yp, pos_weight=pos_weight, f_beta=f_beta)
+        per_clip[clip_id] = m
+        all_true.append(yt)
+        all_pred.append(yp)
+        print(format_metrics_row(clip_id, m))
+
+    pooled = binary_metrics(
+        np.concatenate(all_true),
+        np.concatenate(all_pred),
+        pos_weight=pos_weight,
+        f_beta=f_beta,
+    )
+    print("\npooled:")
+    print(format_metrics_row("ALL", pooled))
+
+    report = {"test_clip_ids": test_ids, "per_clip": per_clip, "pooled": pooled}
+    if save_report is not None:
+        save_report.parent.mkdir(parents=True, exist_ok=True)
+        save_report.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"\nwrote {save_report}")
+    return report
+
+
+def _is_better_checkpoint(
+    metric: str,
+    metrics: dict[str, float],
+    *,
+    best_loss: float,
+    best_recall: float,
+    best_cost: float,
+    best_f_beta: float,
+) -> bool:
+    if metric == "loss":
+        return metrics["loss"] < best_loss
+    if metric == "cost":
+        return metrics["cost"] < best_cost or (
+            metrics["cost"] == best_cost and metrics["recall"] > best_recall
+        )
+    if metric == "f_beta":
+        return metrics["f_beta"] > best_f_beta or (
+            metrics["f_beta"] == best_f_beta and metrics["cost"] < best_cost
+        )
+    # recall: highest recall, then lowest cost
+    return metrics["recall"] > best_recall or (
+        metrics["recall"] == best_recall and metrics["cost"] < best_cost
+    )
+
+
+def _checkpoint_save_msg(metric: str, metrics: dict[str, float]) -> str:
+    if metric == "loss":
+        return f"test_loss={metrics['loss']:.4f}"
+    if metric == "cost":
+        return f"cost={metrics['cost']:.0f} recall={metrics['recall']:.4f}"
+    if metric == "f_beta":
+        return (
+            f"f_beta={metrics['f_beta']:.4f} recall={metrics['recall']:.4f} "
+            f"precision={metrics['precision']:.4f}"
+        )
+    return f"recall={metrics['recall']:.4f} cost={metrics['cost']:.0f}"
+
+
+def save_loss_history(history: list[dict[str, Any]], path: Path) -> None:
+    path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+
+
+def plot_loss_curve(
+    history: list[dict[str, Any]],
+    path: Path,
+    *,
+    best_epoch: int | None = None,
+) -> None:
+    if not history:
+        return
+    import matplotlib.pyplot as plt
+
+    epochs = [int(h["epoch"]) for h in history]
+    train_loss = [float(h["train_loss"]) for h in history]
+    test_loss = [float(h["test_loss"]) for h in history]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_loss, label="train", marker="o", markersize=4)
+    ax.plot(epochs, test_loss, label="test", marker="o", markersize=4)
+    if best_epoch is not None and best_epoch in epochs:
+        ax.axvline(best_epoch, color="gray", linestyle="--", linewidth=1, label=f"best (epoch {best_epoch})")
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("Tversky loss")
+    ax.set_title("Training loss curve")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def train(
+    *,
+    epochs: int | None = None,
+    batch_size: int | None = None,
+    device: torch.device | str | None = None,
+    lr: float | None = None,
+    weight_decay: float | None = None,
+    pred_threshold: float | None = None,
+    f_beta: float | None = None,
+    head_dropout: float | None = None,
+    checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
+    checkpoint_dir: Path | None = None,
+    boundary_margin: int | None = None,
+    train_frame_stride: int | None = None,
+    early_stop_patience: int | None = None,
+    quiet: bool = False,
+    skip_final_eval: bool = False,
+) -> dict[str, Any]:
+    epochs = EPOCHS if epochs is None else epochs
+    batch_size = BATCH_SIZE if batch_size is None else batch_size
+    lr_val = LR if lr is None else lr
+    wd = WEIGHT_DECAY if weight_decay is None else weight_decay
+    pred_thr = DEFAULT_PRED_THRESHOLD if pred_threshold is None else pred_threshold
+    f_beta_val = DEFAULT_F_BETA if f_beta is None else f_beta
+    hd = HEAD_DROPOUT if head_dropout is None else head_dropout
+    bmargin = DEFAULT_BOUNDARY_MARGIN if boundary_margin is None else boundary_margin
+    frame_stride = DEFAULT_FRAME_STRIDE if train_frame_stride is None else train_frame_stride
+    es_patience = early_stop_patience
+    ckpt_dir = CHECKPOINT_DIR if checkpoint_dir is None else checkpoint_dir
+    if checkpoint_metric not in ("loss", "recall", "cost", "f_beta"):
+        raise ValueError(
+            f"checkpoint_metric must be loss, recall, cost, or f_beta; got {checkpoint_metric!r}"
+        )
+    dev = resolve_device(device) if device is not None else resolve_device()
+    print(
+        f"device={dev} backbone={BACKBONE} epochs={epochs} batch_size={batch_size} "
+        f"lr={lr_val} weight_decay={wd} head_dropout={hd} pred_threshold={pred_thr} "
+        f"f_beta={f_beta_val} "
+        f"boundary_margin={bmargin} train_frame_stride={frame_stride} "
+        f"early_stop_patience={es_patience} checkpoint_metric={checkpoint_metric} "
+        f"checkpoint_dir={ckpt_dir}"
+    )
+
+    meta = load_feature_meta(BACKBONE)
+    if meta.get("backbone") != BACKBONE:
+        raise RuntimeError(f"meta backbone {meta.get('backbone')!r} != config {BACKBONE!r}")
+    feat_dim = int(meta["feat_dim"])
+    cached_img_size = int(meta.get("img_size", 0))
+    expected_img_size = get_encoder(BACKBONE, device="cpu").img_size
+    if cached_img_size and cached_img_size != expected_img_size:
+        raise RuntimeError(
+            f"feature cache img_size={cached_img_size} but {BACKBONE} expects {expected_img_size}; "
+            "re-run: python models/lstm/extract_features.py --force --device mps"
+        )
+
+    labels_by_clip = load_labels_by_clip(FRAME_LABELS_CSV)
+    train_ids, test_ids = load_train_test_clip_ids(
+        train_csv=TRAIN_CLIPS_CSV,
+        test_csv=TEST_CLIPS_CSV,
+        labeled_clip_ids=list_clip_ids(FRAME_LABELS_CSV),
+    )
+    print(f"train clips: {len(train_ids)} ({TRAIN_CLIPS_CSV})")
+    print(f"test clips:  {len(test_ids)} ({TEST_CLIPS_CSV})")
+
+    train_ds = FeatureWindowDataset(
+        train_ids,
+        backbone=BACKBONE,
+        labels_by_clip=labels_by_clip,
+        boundary_margin=bmargin,
+        frame_stride=frame_stride,
+    )
+    test_ds = FeatureWindowDataset(
+        test_ids,
+        backbone=BACKBONE,
+        labels_by_clip=labels_by_clip,
+        boundary_margin=bmargin,
+        frame_stride=1,
+    )
+    if train_ds.feat_dim != feat_dim:
+        raise RuntimeError(f"feat_dim mismatch: cache={feat_dim} dataset={train_ds.feat_dim}")
+
+    n_pos, n_neg = train_label_counts(
+        train_ids, labels_by_clip, boundary_margin=bmargin, frame_stride=frame_stride
+    )
+    tversky_alpha, tversky_beta = tversky_coefficients_from_f_beta(f_beta_val)
+    pos_weight = class_weight_ratio_from_counts(n_pos, n_neg)
+    print(
+        f"  class counts: n_pos={n_pos} n_neg={n_neg} "
+        f"f_beta={f_beta_val} tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
+        f"(sum={tversky_alpha + tversky_beta:.4f}) pos_weight={pos_weight:.4f} (cost FN)"
+    )
+
+    print(f"  train samples={len(train_ds)} test samples={len(test_ds)}")
+    if frame_stride > 1:
+        print(f"  train subsampling: every {frame_stride}th frame")
+    if bmargin > 0:
+        n_loss, n_train_frames = train_ds.loss_frame_counts()
+        n_test_loss, n_test_frames = test_ds.loss_frame_counts()
+        train_pct = 100.0 * (1.0 - n_loss / max(n_train_frames, 1))
+        test_pct = 100.0 * (1.0 - n_test_loss / max(n_test_frames, 1))
+        print(
+            f"  boundary loss mask: train {n_loss}/{n_train_frames} "
+            f"({train_pct:.1f}% ignored), test {n_test_loss}/{n_test_frames} "
+            f"({test_pct:.1f}% ignored) within {bmargin} frames of transitions"
+        )
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=NUM_WORKERS,
+        collate_fn=collate_batch,
+    )
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        collate_fn=collate_batch,
+    )
+
+    model = TemporalPlayingClassifier(
+        feat_dim,
+        hidden_size=LSTM_HIDDEN_SIZE,
+        num_layers=LSTM_NUM_LAYERS,
+        dropout=LSTM_DROPOUT,
+        head_dropout=hd,
+    ).to(dev)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr_val, weight_decay=wd)
+
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    config = {
+        "backbone": BACKBONE,
+        "feat_dim": feat_dim,
+        "features_root": str(FEATURES_ROOT.relative_to(REPO_ROOT)),
+        "frame_labels_csv": str(FRAME_LABELS_CSV.relative_to(REPO_ROOT)),
+        "train_clip_ids": train_ids,
+        "test_clip_ids": test_ids,
+        "train_clips_csv": _path_for_config(TRAIN_CLIPS_CSV),
+        "test_clips_csv": _path_for_config(TEST_CLIPS_CSV),
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "lr": lr_val,
+        "weight_decay": wd,
+        "loss": "tversky",
+        "f_beta": f_beta_val,
+        "tversky_alpha": tversky_alpha,
+        "tversky_beta": tversky_beta,
+        "pos_weight": pos_weight,
+        "train_n_pos": n_pos,
+        "train_n_neg": n_neg,
+        "pred_threshold": pred_thr,
+        "lstm_hidden_size": LSTM_HIDDEN_SIZE,
+        "lstm_num_layers": LSTM_NUM_LAYERS,
+        "lstm_dropout": LSTM_DROPOUT,
+        "head_dropout": hd,
+        "checkpoint_metric": checkpoint_metric,
+        "boundary_margin": bmargin,
+        "train_frame_stride": frame_stride,
+        "early_stop_patience": es_patience,
+    }
+    (ckpt_dir / "train_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    best_loss = float("inf")
+    best_recall = -1.0
+    best_cost = float("inf")
+    best_f_beta = -1.0
+    best_epoch = -1
+    epochs_without_improvement = 0
+    loss_history: list[dict[str, Any]] = []
+
+    epoch_iter = tqdm(range(epochs), desc="epochs", disable=quiet)
+    for epoch in epoch_iter:
+        model.train()
+        train_loss_sum = 0.0
+        train_mask_sum = 0.0
+
+        batch_iter = tqdm(train_loader, desc=f"train {epoch}", leave=False, disable=quiet)
+        for batch in batch_iter:
+            seq = batch["seq"].to(dev)
+            labels = batch["label"].to(dev).unsqueeze(1)
+            loss_mask = batch["loss_mask"].to(dev).unsqueeze(1)
+            optimizer.zero_grad(set_to_none=True)
+            logits = model(seq)
+            if bmargin > 0:
+                wsum, msum = masked_tversky_loss_sum(
+                    logits,
+                    labels,
+                    loss_mask,
+                    alpha=tversky_alpha,
+                    beta=tversky_beta,
+                )
+                loss = wsum / msum.clamp(min=1.0)
+                train_loss_sum += float(wsum.item())
+                train_mask_sum += float(msum.item())
+            else:
+                loss = tversky_loss(
+                    logits, labels, alpha=tversky_alpha, beta=tversky_beta
+                )
+                train_loss_sum += float(loss.item()) * labels.numel()
+                train_mask_sum += float(labels.numel())
+            loss.backward()
+            optimizer.step()
+
+        train_loss = train_loss_sum / max(train_mask_sum, 1.0)
+        metrics = evaluate_loader(
+            model,
+            test_loader,
+            dev,
+            pos_weight,
+            tversky_alpha=tversky_alpha,
+            tversky_beta=tversky_beta,
+            boundary_margin=bmargin,
+            pred_threshold=pred_thr,
+            f_beta=f_beta_val,
+        )
+        loss_history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "test_loss": float(metrics["loss"]),
+                "recall": float(metrics["recall"]),
+                "precision": float(metrics["precision"]),
+                "f_beta": float(metrics["f_beta"]),
+                "cost": float(metrics["cost"]),
+            }
+        )
+        if not quiet:
+            print(
+                f"epoch {epoch}: train_loss={train_loss:.4f} "
+                f"test_loss={metrics['loss']:.4f} "
+                f"recall={metrics['recall']:.4f} precision={metrics['precision']:.4f} "
+                f"f_beta={metrics['f_beta']:.4f} cost={metrics['cost']:.0f} "
+                f"(TP={metrics['tp']:.0f} FP={metrics['fp']:.0f} "
+                f"TN={metrics['tn']:.0f} FN={metrics['fn']:.0f})"
+            )
+
+        ckpt = {
+            "epoch": epoch,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "metrics": metrics,
+            "config": config,
+        }
+        torch.save(ckpt, ckpt_dir / "last.pt")
+
+        improved = _is_better_checkpoint(
+            checkpoint_metric,
+            metrics,
+            best_loss=best_loss,
+            best_recall=best_recall,
+            best_cost=best_cost,
+            best_f_beta=best_f_beta,
+        )
+        if improved:
+            best_loss = min(best_loss, metrics["loss"])
+            best_recall = max(best_recall, metrics["recall"])
+            best_cost = min(best_cost, metrics["cost"])
+            best_f_beta = max(best_f_beta, metrics["f_beta"])
+            best_epoch = epoch
+            epochs_without_improvement = 0
+            torch.save(ckpt, ckpt_dir / "best.pt")
+            if not quiet:
+                print(f"  saved best.pt ({_checkpoint_save_msg(checkpoint_metric, metrics)})")
+        else:
+            epochs_without_improvement += 1
+
+        if es_patience is not None and es_patience > 0 and epochs_without_improvement >= es_patience:
+            if not quiet:
+                print(
+                    f"  early stop: no {checkpoint_metric} improvement for {es_patience} epoch(s) "
+                    f"(best epoch {best_epoch})"
+                )
+            break
+
+    loss_history_path = ckpt_dir / "loss_history.json"
+    loss_curve_path = ckpt_dir / "loss_curve.png"
+    save_loss_history(loss_history, loss_history_path)
+    plot_loss_curve(loss_history, loss_curve_path, best_epoch=best_epoch)
+    if not quiet and loss_history:
+        print(f"  wrote {loss_history_path.name} and {loss_curve_path.name}")
+
+    best_ckpt = torch.load(ckpt_dir / "best.pt", map_location=dev, weights_only=False)
+    model.load_state_dict(best_ckpt["model_state"])
+    if not skip_final_eval:
+        evaluate_test_clips(
+            model,
+            test_ids,
+            backbone=BACKBONE,
+            labels_by_clip=labels_by_clip,
+            device=dev,
+            batch_size=batch_size,
+            pos_weight=pos_weight,
+            pred_threshold=pred_thr,
+            f_beta=f_beta_val,
+            save_report=ckpt_dir / "test_clip_metrics.json",
+        )
+    if not quiet:
+        print(f"\ndone. checkpoints in {ckpt_dir}")
+
+    return {
+        "best_epoch": int(best_ckpt["epoch"]),
+        "metrics": dict(best_ckpt["metrics"]),
+        "checkpoint_metric": checkpoint_metric,
+        "checkpoint_dir": str(ckpt_dir),
+        "loss_history_path": str(loss_history_path),
+        "loss_curve_path": str(loss_curve_path),
+        "hparams": {
+            "lr": lr_val,
+            "weight_decay": wd,
+            "pos_weight": pos_weight,
+            "pred_threshold": pred_thr,
+            "f_beta": f_beta_val,
+            "head_dropout": hd,
+            "boundary_margin": bmargin,
+            "train_frame_stride": frame_stride,
+            "early_stop_patience": es_patience,
+            "epochs": epochs,
+            "batch_size": batch_size,
+        },
+    }
+
+
+def eval_checkpoint(
+    checkpoint: Path = DEFAULT_CHECKPOINT,
+    *,
+    device: str | None = None,
+    batch_size: int = 64,
+    extract_batch_size: int = 32,
+    force_extract: bool = False,
+    pred_threshold: float | None = None,
+) -> None:
+    if not checkpoint.is_file():
+        raise RuntimeError(f"checkpoint not found: {checkpoint}")
+
+    dev = resolve_device(device)
+    ckpt = torch.load(checkpoint, map_location=dev, weights_only=False)
+    config = ckpt.get("config") or {}
+    feat_dim = int(config.get("feat_dim", 0))
+    if feat_dim <= 0:
+        raise RuntimeError(f"checkpoint missing feat_dim: {checkpoint}")
+
+    backbone = str(config.get("backbone", BACKBONE))
+    tversky_alpha, tversky_beta = tversky_coefficients_from_config(config)
+    pos_weight = pos_weight_from_config(config)
+    f_beta_val = float(config.get("f_beta", DEFAULT_F_BETA))
+    pred_thr = (
+        pred_threshold_from_config(config)
+        if pred_threshold is None
+        else pred_threshold
+    )
+    test_ids = resolved_test_clip_ids_from_config(config)
+    print(
+        f"checkpoint={checkpoint.name} device={dev} test clips={len(test_ids)} "
+        f"f_beta={f_beta_val} tversky_alpha={tversky_alpha:.4f} tversky_beta={tversky_beta:.4f} "
+        f"pred_threshold={pred_thr}"
+    )
+
+    ensure_features_for_clips(
+        test_ids,
+        backbone=backbone,
+        clip_to_source=clip_to_source_map(),
+        batch_size=extract_batch_size,
+        force=force_extract,
+        device=str(dev),
+        show_frames=force_extract,
+    )
+
+    model = temporal_model_from_config(feat_dim, config).to(dev)
+    model.load_state_dict(ckpt["model_state"])
+    evaluate_test_clips(
+        model,
+        test_ids,
+        backbone=backbone,
+        labels_by_clip=load_labels_by_clip(FRAME_LABELS_CSV),
+        device=dev,
+        batch_size=batch_size,
+        pos_weight=pos_weight,
+        pred_threshold=pred_thr,
+        f_beta=f_beta_val,
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Train BiLSTM; evaluate test clips when done.")
+    p.add_argument("--epochs", type=int, default=EPOCHS)
+    p.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    p.add_argument("--lr", type=float, default=LR, help=f"AdamW learning rate (default: {LR})")
+    p.add_argument(
+        "--weight-decay",
+        type=float,
+        default=WEIGHT_DECAY,
+        help=f"AdamW weight decay (default: {WEIGHT_DECAY}; use 0 to disable)",
+    )
+    p.add_argument("--device", default=None, help="cuda, mps, or cpu")
+    p.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Skip training; run per-clip test metrics from a checkpoint",
+    )
+    p.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help=f"Checkpoint file (default: <checkpoint-dir>/best.pt or {DEFAULT_CHECKPOINT.relative_to(REPO_ROOT)}).",
+    )
+    p.add_argument("--force-extract", action="store_true", help="Re-run CNN for test clips")
+    p.add_argument(
+        "--pred-threshold",
+        type=float,
+        default=DEFAULT_PRED_THRESHOLD,
+        metavar="T",
+        help=f"Sigmoid threshold for playing (default: {DEFAULT_PRED_THRESHOLD}; lower => higher recall).",
+    )
+    p.add_argument(
+        "--head-dropout",
+        type=float,
+        default=None,
+        metavar="P",
+        help=f"Dropout on BiLSTM center frame before linear head (default: {HEAD_DROPOUT}).",
+    )
+    p.add_argument(
+        "--checkpoint-metric",
+        choices=("loss", "recall", "cost", "f_beta"),
+        default=DEFAULT_CHECKPOINT_METRIC,
+        help="Save best.pt when this test metric improves (default: loss). "
+        "f_beta uses thresholded F_beta from --f-beta.",
+    )
+    p.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=None,
+        help=f"Directory for best.pt / last.pt (default: {CHECKPOINT_DIR.relative_to(REPO_ROOT)}). "
+        "With --eval-only, loads <dir>/best.pt when --checkpoint is omitted.",
+    )
+    p.add_argument(
+        "--boundary-margin",
+        type=int,
+        default=DEFAULT_BOUNDARY_MARGIN,
+        metavar="N",
+        help="Exclude frames within N indices of each 0/1 label transition from train and test "
+        f"loss (default: {DEFAULT_BOUNDARY_MARGIN}; try {WINDOW_RADIUS} to match the 30-frame "
+        "window). Thresholded recall/precision/F_beta still use all frames.",
+    )
+    p.add_argument(
+        "--f-beta",
+        type=float,
+        default=DEFAULT_F_BETA,
+        metavar="B",
+        help=f"F_beta and Tversky recall emphasis (default: {DEFAULT_F_BETA}; "
+        "2 weights recall 2x vs precision).",
+    )
+    p.add_argument(
+        "--train-frame-stride",
+        type=int,
+        default=DEFAULT_FRAME_STRIDE,
+        metavar="N",
+        help="Use every Nth frame for training samples only (default: 1). Reduces overlapping "
+        "windows from the same clip.",
+    )
+    p.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Stop after N epochs without improvement on --checkpoint-metric (default: off). "
+        "Use 2 with --checkpoint-metric loss when test loss rises after epoch 0.",
+    )
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    try:
+        if args.eval_only:
+            ckpt_path = resolve_checkpoint_path(args.checkpoint, args.checkpoint_dir)
+            eval_checkpoint(
+                ckpt_path,
+                device=args.device,
+                batch_size=args.batch_size,
+                force_extract=args.force_extract,
+                pred_threshold=args.pred_threshold,
+            )
+        else:
+            train(
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                device=args.device,
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+                pred_threshold=args.pred_threshold,
+                f_beta=args.f_beta,
+                head_dropout=args.head_dropout,
+                checkpoint_metric=args.checkpoint_metric,
+                checkpoint_dir=args.checkpoint_dir,
+                boundary_margin=args.boundary_margin,
+                train_frame_stride=args.train_frame_stride,
+                early_stop_patience=args.early_stop_patience,
+            )
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
