@@ -1,5 +1,5 @@
-CKPT="models/lstm/checkpoints/2026-05-21-11:59-cnn-lstm-fbeta/best.pt"
-OUT="models/lstm/predictions/2026-05-21-11:59-cnn-lstm-fbeta"
+CKPT="models/lstm/checkpoints/2026-05-27-12:37-cnn-lstm/best.pt"
+OUT="models/lstm/predictions/2026-05-27-12:37-cnn-lstm"
 mkdir -p "$OUT"
 
 while IFS= read -r clip_id || [[ -n "$clip_id" ]]; do
@@ -9,4 +9,4 @@ while IFS= read -r clip_id || [[ -n "$clip_id" ]]; do
     --checkpoint "$CKPT" \
     --output-dir "$OUT" \
     --device mps
-done < data/test_clips_20260518.csv
+done < data/test_clips.csv
