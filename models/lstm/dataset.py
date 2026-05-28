@@ -147,7 +147,10 @@ def load_train_test_clip_ids(
     test_csv: Path = DEFAULT_TEST_CLIPS_CSV,
     labeled_clip_ids: set[str] | list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Load train/test clip ids from ``data/train_clips.csv`` and ``data/test_clips.csv``."""
+    """Load train/test clip ids from ``data/train_clips.csv`` and ``data/test_clips.csv``.
+
+    Labeled clips not listed in either CSV are ignored (e.g. held out for later evaluation).
+    """
     for path, name in ((train_csv, "train"), (test_csv, "test")):
         if not path.is_file():
             raise RuntimeError(
@@ -180,13 +183,6 @@ def load_train_test_clip_ids(
                 "clip ids in train/test CSV missing from frame labels: "
                 + ", ".join(bad)
                 + (" ..." if len(missing) > 5 else "")
-            )
-        unassigned = labeled - train_set - test_set
-        if unassigned:
-            sample = sorted(unassigned)[:5]
-            raise RuntimeError(
-                f"{len(unassigned)} labeled clip(s) not in train or test CSV "
-                f"(e.g. {', '.join(sample)})"
             )
 
     return sorted(train_ids), sorted(test_ids)
