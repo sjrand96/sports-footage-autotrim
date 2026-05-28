@@ -11,6 +11,7 @@ cv-pipeline/pose-detection/media/clips_v2/
 wandb/
 .DS_Store
 yolov8s-pose.pt
+eval/output/
 
 # CV calibration outputs (npz, previews)
 cv-pipeline/calibration/out/

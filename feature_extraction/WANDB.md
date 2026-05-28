@@ -80,3 +80,21 @@ Install: `pip install -e ".[ml]"` (includes `wandb`, `xgboost`, etc.).
 ```
 
 See also [CLOUD_DEPLOY.md](CLOUD_DEPLOY.md) (fanout) and [models/tabular_xgb/README.md](../models/tabular_xgb/README.md) (training).
+
+---
+
+## Dashboard / run count
+
+**Grouped CV and threshold tuning do not create extra W&B runs.** Five XGB fits happen locally inside one `train.py --wandb` invocation → **one** training run with a few scalar metrics (and an optional threshold curve).
+
+**Expected runs per feature extract `run_id`:**
+
+| Action | W&B runs | Notes |
+|--------|----------|--------|
+| Fanout finalize or `wandb_publish` | **1** (`job_type=publish_features`) | Stable id `fe-publish-{run_id}` — re-publish updates the same row |
+| `train.py --wandb` | **1 per invocation** | New run each time unless `--wandb-run-id` is set |
+| Artifacts | versions, not runs | `playing-features:{run_id}`, `xgb-playing-{run_id}` |
+
+**Organization:** publish and train runs share `group={feature_run_id}` so the UI groups them together. Filter by `job_type` (`publish_features` vs `train`) or tag `feature_run:…`.
+
+**Avoid clutter:** use `--wandb-run-id xgb-myexperiment` only when you intentionally want to overwrite a prior train log. Skip `--wandb-log-threshold-sweep` unless you need the full curve (scalars `test/f2`, `decision_threshold`, `threshold_tuning/oof_fbeta` are logged by default). Delete stray debug runs from early smoke tests in the UI if needed.
