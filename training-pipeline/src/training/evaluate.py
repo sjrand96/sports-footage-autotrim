@@ -515,11 +515,20 @@ def _prepare_model_inputs(
     features: torch.Tensor | Dict[str, torch.Tensor],
     fusion: str,
     frame_encoder: torch.nn.Module | None,
+    expected_e2e_dim: int | None = None,
 ) -> torch.Tensor | Dict[str, torch.Tensor]:
     if isinstance(features, dict):
         video = features["video"]
         if frame_encoder is not None:
             video = _encode_frames(video, frame_encoder)
+        if expected_e2e_dim is not None:
+            e2e = features["e2e"]
+            if e2e.shape[-1] > expected_e2e_dim:
+                e2e = e2e[..., :expected_e2e_dim]
+            elif e2e.shape[-1] < expected_e2e_dim:
+                pad = expected_e2e_dim - e2e.shape[-1]
+                e2e = torch.nn.functional.pad(e2e, (0, pad))
+            features = {**features, "e2e": e2e}
         if fusion == "early":
             return torch.cat([video, features["e2e"]], dim=-1)
         if fusion == "late":
@@ -538,7 +547,7 @@ def _load_checkpoint(
     fusion: str,
     video_input_dim: int | None = None,
     feature_input_dim: int | None = None,
-) -> Tuple[torch.nn.Module, str]:
+) -> Tuple[torch.nn.Module, str, int | None, int | None]:
     data = torch.load(path, map_location="cpu")
     fusion_mode = str(data.get("fusion") or fusion or "none")
     cfg_payload = data.get("config") or {}
@@ -553,6 +562,8 @@ def _load_checkpoint(
             filtered = {k: v for k, v in cfg_payload.items() if k in allowed}
             cfg = FusionTransformerConfig(**{**cfg.__dict__, **filtered})
         model = LateFusionTransformerClassifier(cfg)
+        expected_input_dim = int(cfg.video_input_dim)
+        expected_feature_dim = int(cfg.feature_input_dim)
     else:
         cfg = TransformerConfig(input_dim=input_dim, max_len=max_len)
         if cfg_payload:
@@ -560,8 +571,10 @@ def _load_checkpoint(
             filtered = {k: v for k, v in cfg_payload.items() if k in allowed}
             cfg = TransformerConfig(**{**cfg.__dict__, **filtered})
         model = TransformerClassifier(cfg)
+        expected_input_dim = int(cfg.input_dim)
+        expected_feature_dim = None
     model.load_state_dict(data["model"])
-    return model, fusion_mode
+    return model, fusion_mode, expected_input_dim, expected_feature_dim
 
 
 def main() -> None:
@@ -570,7 +583,23 @@ def main() -> None:
     parser.add_argument("--features-dir", default=None)
     parser.add_argument("--pose-dir", default=None)
     parser.add_argument("--e2e-features-dir", default=None)
-    parser.add_argument("--e2e-feature-subset", choices=["all", "base"], default="all")
+    parser.add_argument(
+        "--e2e-feature-subset",
+        choices=[
+            "all",
+            "base",
+            "counts",
+            "pairwise",
+            "net_dist",
+            "centroids",
+            "mocon",
+            "spatial",
+            "pose_angles",
+            "actions",
+            "temporal",
+        ],
+        default="all",
+    )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--batch-size", type=int, default=None)
@@ -656,7 +685,7 @@ def main() -> None:
     if cfg.use_raw_frames:
         video_input_dim = 512
 
-    model, fusion_mode = _load_checkpoint(
+    model, fusion_mode, expected_input_dim, expected_feature_dim = _load_checkpoint(
         cfg.checkpoint_path,
         input_dim,
         cfg.num_frames,
@@ -677,6 +706,12 @@ def main() -> None:
         encoder.to(device)
         frame_encoder = encoder
 
+    expected_e2e_dim = None
+    if fusion_mode == "early" and expected_input_dim is not None and video_input_dim is not None:
+        expected_e2e_dim = max(0, expected_input_dim - video_input_dim)
+    if fusion_mode == "late" and expected_feature_dim is not None:
+        expected_e2e_dim = expected_feature_dim
+
     y_true: List[int] = []
     y_pred: List[int] = []
     y_prob: List[float] = []
@@ -688,7 +723,12 @@ def main() -> None:
                 feats = {key: value.to(device) for key, value in feats.items()}
             else:
                 feats = feats.to(device)
-            model_inputs = _prepare_model_inputs(feats, fusion_mode, frame_encoder)
+            model_inputs = _prepare_model_inputs(
+                feats,
+                fusion_mode,
+                frame_encoder,
+                expected_e2e_dim=expected_e2e_dim,
+            )
             logits = model(model_inputs)
             probs = torch.softmax(logits, dim=1)[:, 1].cpu().tolist()
             preds = [1 if p >= args.pred_threshold else 0 for p in probs]

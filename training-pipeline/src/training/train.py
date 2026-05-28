@@ -197,7 +197,23 @@ def main() -> None:
     parser.add_argument("--split-field", default="source_id", help="Field to group by when splitting train/val/test")
     parser.add_argument("--use-raw-frames", action="store_true", help="Train on raw frames with a frozen ResNet encoder.")
     parser.add_argument("--fusion", choices=["none", "early", "late"], default=None, help="How to fuse E2E parquet features with video features.")
-    parser.add_argument("--e2e-feature-subset", choices=["all", "base"], default=None)
+    parser.add_argument(
+        "--e2e-feature-subset",
+        choices=[
+            "all",
+            "base",
+            "counts",
+            "pairwise",
+            "net_dist",
+            "centroids",
+            "mocon",
+            "spatial",
+            "pose_angles",
+            "actions",
+            "temporal",
+        ],
+        default=None,
+    )
     parser.add_argument("--e2e-only", action="store_true", help="Train using only E2E parquet features (no video embeddings).")
     parser.add_argument("--s3-cache-dir", default=None, help="Local cache for S3 manifests/features.")
     parser.add_argument("--clip-cache-dir", default=None, help="Local cache for S3 video clips.")

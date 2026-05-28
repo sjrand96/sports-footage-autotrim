@@ -228,7 +228,9 @@ class VideoWindowDataset(Dataset):
             df = pd.read_parquet(path)
             missing = [col for col in self.e2e_feature_columns if col not in df.columns]
             if missing:
-                raise ValueError(f"{path} is missing expected E2E feature columns: {missing}")
+                for col in missing:
+                    fill = 0.0 if col.startswith("n_") or col.endswith("_count") else -1.0
+                    df[col] = fill
             self._e2e_cache[clip_id] = df
         return self._e2e_cache[clip_id]
 
