@@ -1,8 +1,11 @@
-"""Build deterministic per-video train/test clip lists from Supabase.
+"""Build train/test clip lists from Supabase.
 
-Writes ``data/train_clips.csv``, ``data/test_clips.csv``, and ``data/train-test-split-meta.json``.
+Writes ``data/train_clips.csv``, ``data/test_clips.csv``, and ``data/train_test_split_meta.json``.
 Only clips with timeline labels in Supabase are included; unlabeled clips are skipped with a warning.
-Edit ``data/source_ids.py`` for which sources to include. Re-runs are reproducible (seed 42).
+
+Edit ``data/source_ids.py``:
+- ``TRAIN_SOURCE_IDS`` / ``TEST_SOURCE_IDS`` — assign whole sources to train or test.
+- ``SOURCE_IDS`` only — random 80/20 split within each source (seed 42, reproducible).
 
 Run::
 
@@ -85,6 +88,90 @@ def assign_train_test_by_source(
     return train, test, meta
 
 
+def assign_train_test_by_source_lists(
+    clips: list[dict[str, Any]],
+    *,
+    train_source_ids: list[str],
+    test_source_ids: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Assign all clips from each source to train or test based on source ID lists."""
+    train_set = set(train_source_ids)
+    test_set = set(test_source_ids)
+    overlap = train_set & test_set
+    if overlap:
+        raise ValueError(
+            f"source IDs appear in both TRAIN_SOURCE_IDS and TEST_SOURCE_IDS: "
+            f"{sorted(overlap)}"
+        )
+
+    by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for clip in clips:
+        by_source[str(clip["source_id"])].append(clip)
+
+    unknown = set(by_source) - train_set - test_set
+    if unknown:
+        raise ValueError(
+            f"clips found for sources not in TRAIN_SOURCE_IDS or TEST_SOURCE_IDS: "
+            f"{sorted(unknown)}"
+        )
+
+    train: list[dict[str, Any]] = []
+    test: list[dict[str, Any]] = []
+    per_source: dict[str, dict[str, int]] = {}
+
+    for source_id in sorted(by_source):
+        group = sorted(by_source[source_id], key=lambda c: int(c["clip_index"]))
+        if source_id in train_set:
+            train.extend(group)
+            per_source[source_id] = {"total": len(group), "train": len(group), "test": 0}
+        else:
+            test.extend(group)
+            per_source[source_id] = {"total": len(group), "train": 0, "test": len(group)}
+
+    key = lambda c: (str(c["source_id"]), int(c["clip_index"]))
+    train.sort(key=key)
+    test.sort(key=key)
+
+    meta = {
+        "built_at": datetime.now(timezone.utc).isoformat(),
+        "split_method": "explicit_source_lists",
+        "train_source_ids": sorted(train_set),
+        "test_source_ids": sorted(test_set),
+        "source_ids": sorted(by_source),
+        "per_source": per_source,
+        "train_clips": len(train),
+        "test_clips": len(test),
+        "train_clip_ids": [c["clip_id"] for c in train],
+        "test_clip_ids": [c["clip_id"] for c in test],
+    }
+    return train, test, meta
+
+
+def _resolve_split_config() -> tuple[list[str], str]:
+    from data.source_ids import SOURCE_IDS, TEST_SOURCE_IDS, TRAIN_SOURCE_IDS
+
+    if TRAIN_SOURCE_IDS or TEST_SOURCE_IDS:
+        train_set = set(TRAIN_SOURCE_IDS)
+        test_set = set(TEST_SOURCE_IDS)
+        overlap = train_set & test_set
+        if overlap:
+            raise RuntimeError(
+                "source IDs in both TRAIN_SOURCE_IDS and TEST_SOURCE_IDS: "
+                f"{sorted(overlap)}"
+            )
+        source_ids = sorted(train_set | test_set)
+        if not source_ids:
+            raise RuntimeError(
+                "TRAIN_SOURCE_IDS and TEST_SOURCE_IDS are both empty; "
+                "edit data/source_ids.py"
+            )
+        return source_ids, "explicit_source_lists"
+
+    if not SOURCE_IDS:
+        raise RuntimeError("SOURCE_IDS is empty; edit data/source_ids.py")
+    return list(SOURCE_IDS), "per_source_id_random"
+
+
 def train_test_split() -> None:
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
@@ -95,16 +182,15 @@ def train_test_split() -> None:
         fetch_latest_annotation,
         list_clips_for_source,
     )
-    from data.source_ids import SOURCE_IDS
+    from data.source_ids import TEST_SOURCE_IDS, TRAIN_SOURCE_IDS
 
-    if not SOURCE_IDS:
-        raise RuntimeError("SOURCE_IDS is empty; edit data/source_ids.py")
+    source_ids, split_method = _resolve_split_config()
 
     ensure_env_loaded()
     client = _get_db_helpers().get_supabase_client()
 
     clips: list[dict[str, Any]] = []
-    for source_id in SOURCE_IDS:
+    for source_id in source_ids:
         rows = list_clips_for_source(client, source_id)
         if not rows:
             raise RuntimeError(f"no clips in Supabase for source_id={source_id!r}")
@@ -127,7 +213,14 @@ def train_test_split() -> None:
     if not clips:
         raise RuntimeError("no clips with labels in Supabase for any source_id")
 
-    train, test, meta = assign_train_test_by_source(clips)
+    if split_method == "explicit_source_lists":
+        train, test, meta = assign_train_test_by_source_lists(
+            clips,
+            train_source_ids=TRAIN_SOURCE_IDS,
+            test_source_ids=TEST_SOURCE_IDS,
+        )
+    else:
+        train, test, meta = assign_train_test_by_source(clips)
 
     for path, rows in ((TRAIN_CSV, train), (TEST_CSV, test)):
         with path.open("w", encoding="utf-8", newline="") as f:
