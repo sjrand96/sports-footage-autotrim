@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -12,9 +13,16 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from eval.segment_metrics import extract_segments_from_probs, segments_to_binary
+
 # Timeline strips: filled = playing (1), light gray = downtime (0).
 CMAP_GT = ListedColormap(["#f0f0f0", "#2ca02c"])
 CMAP_PRED = ListedColormap(["#f0f0f0", "#d62728"])
+CMAP_SEG = ListedColormap(["#f0f0f0", "#1f77b4"])
 
 REQUIRED_COLS = (
     "clip_key",
@@ -78,6 +86,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also plot prob_playing (only with --style lines).",
     )
+    p.add_argument(
+        "--show-segments",
+        action="store_true",
+        help="For strip plots, add a band for post-filtered segment output.",
+    )
+    p.add_argument(
+        "--segment-threshold",
+        type=float,
+        default=None,
+        help="Probability threshold for segment extraction (default: CSV decision_threshold, else 0.35).",
+    )
+    p.add_argument("--segment-window-frames", type=int, default=15)
+    p.add_argument("--segment-aggregation", choices=("mean", "max"), default="mean")
+    p.add_argument("--segment-max-gap-frames", type=int, default=45)
+    p.add_argument("--segment-min-segment-frames", type=int, default=90)
     p.add_argument("--dpi", type=int, default=120)
     p.add_argument(
         "--show",
@@ -95,6 +118,40 @@ def load_preds_csv(path: Path) -> pd.DataFrame:
     if "prob_playing" not in df.columns:
         df["prob_playing"] = float("nan")
     return df
+
+
+def _segment_threshold(df: pd.DataFrame, explicit: float | None) -> float:
+    if explicit is not None:
+        return float(explicit)
+    if "decision_threshold" in df.columns and df["decision_threshold"].notna().any():
+        values = df["decision_threshold"].dropna().astype(float).unique()
+        if len(values) == 1:
+            return float(values[0])
+    return 0.35
+
+
+def add_segment_prediction_column(
+    df: pd.DataFrame,
+    *,
+    threshold: float,
+    window_frames: int,
+    aggregation: str,
+    max_gap_frames: int,
+    min_segment_frames: int,
+) -> pd.DataFrame:
+    if "prob_playing" not in df.columns or df["prob_playing"].isna().all():
+        raise SystemExit("--show-segments requires prob_playing values")
+    out = df.copy()
+    segments, _ = extract_segments_from_probs(
+        out["prob_playing"].to_numpy(dtype=float),
+        threshold=threshold,
+        window_frames=window_frames,
+        aggregation=aggregation,
+        max_gap_frames=max_gap_frames,
+        min_segment_frames=min_segment_frames,
+    )
+    out["segment_playing"] = segments_to_binary(segments, n_frames=len(out)).astype(int)
+    return out
 
 
 def _parse_clip_key(clip_key: str) -> tuple[str, int]:
@@ -143,15 +200,33 @@ def _plot_panel_strips(
     x_col: str = "frame_idx",
     mark_clip_boundaries: list[int] | None = None,
 ) -> None:
-    """Two stacked timeline bands — compare vertical alignment frame-by-frame."""
+    """Stacked timeline bands — compare vertical alignment frame-by-frame."""
     gt = df["is_playing"].to_numpy(dtype=float)
     pred = df["pred_playing"].to_numpy(dtype=float)
+    segment = (
+        df["segment_playing"].to_numpy(dtype=float)
+        if "segment_playing" in df.columns
+        else None
+    )
     xmin, xmax = _x_extent(df, x_col)
+    if segment is None:
+        gt_y0, gt_y1 = 1.0, 2.0
+        pred_y0, pred_y1 = 0.0, 1.0
+        yticks = [0.5, 1.5]
+        yticklabels = ["prediction", "ground truth"]
+        ylim = (0, 2)
+    else:
+        gt_y0, gt_y1 = 2.0, 3.0
+        pred_y0, pred_y1 = 1.0, 2.0
+        seg_y0, seg_y1 = 0.0, 1.0
+        yticks = [0.5, 1.5, 2.5]
+        yticklabels = ["segments", "prediction", "ground truth"]
+        ylim = (0, 3)
 
     ax.imshow(
         gt[np.newaxis, :],
         aspect="auto",
-        extent=[xmin, xmax, 1.0, 2.0],
+        extent=[xmin, xmax, gt_y0, gt_y1],
         cmap=CMAP_GT,
         vmin=0,
         vmax=1,
@@ -161,21 +236,32 @@ def _plot_panel_strips(
     ax.imshow(
         pred[np.newaxis, :],
         aspect="auto",
-        extent=[xmin, xmax, 0.0, 1.0],
+        extent=[xmin, xmax, pred_y0, pred_y1],
         cmap=CMAP_PRED,
         vmin=0,
         vmax=1,
         interpolation="nearest",
         origin="lower",
     )
+    if segment is not None:
+        ax.imshow(
+            segment[np.newaxis, :],
+            aspect="auto",
+            extent=[xmin, xmax, seg_y0, seg_y1],
+            cmap=CMAP_SEG,
+            vmin=0,
+            vmax=1,
+            interpolation="nearest",
+            origin="lower",
+        )
     if mark_clip_boundaries:
         for boundary in mark_clip_boundaries:
             ax.axvline(boundary, color="#444444", linewidth=0.7, linestyle=":", ymin=0, ymax=1)
 
-    ax.set_ylim(0, 2)
+    ax.set_ylim(*ylim)
     ax.set_xlim(xmin, xmax)
-    ax.set_yticks([0.5, 1.5])
-    ax.set_yticklabels(["prediction", "ground truth"], fontsize=8)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(yticklabels, fontsize=8)
     ax.set_title(title, fontsize=10, loc="left")
     ax.grid(False)
 
@@ -239,7 +325,22 @@ def _plot_panel(
     x_col: str = "frame_idx",
     show_prob: bool = False,
     mark_clip_boundaries: list[int] | None = None,
+    show_segments: bool = False,
+    segment_threshold: float = 0.35,
+    segment_window_frames: int = 15,
+    segment_aggregation: str = "mean",
+    segment_max_gap_frames: int = 45,
+    segment_min_segment_frames: int = 90,
 ) -> None:
+    if show_segments:
+        df = add_segment_prediction_column(
+            df,
+            threshold=segment_threshold,
+            window_frames=segment_window_frames,
+            aggregation=segment_aggregation,
+            max_gap_frames=segment_max_gap_frames,
+            min_segment_frames=segment_min_segment_frames,
+        )
     if style == "strips":
         _plot_panel_strips(ax, df, title=title, x_col=x_col, mark_clip_boundaries=mark_clip_boundaries)
     else:
@@ -259,17 +360,35 @@ def plot_single_clip(
     *,
     style: str,
     show_prob: bool,
+    show_segments: bool,
+    segment_threshold: float,
+    segment_window_frames: int,
+    segment_aggregation: str,
+    segment_max_gap_frames: int,
+    segment_min_segment_frames: int,
 ) -> plt.Figure:
     clip_df = df[df["clip_key"] == clip_key].sort_values("frame_idx", kind="stable")
     if clip_df.empty:
         known = ", ".join(sorted(df["clip_key"].unique()[:8]))
         raise SystemExit(f"clip_key not found: {clip_key!r}. Examples: {known}…")
 
-    fig_h = 2.0 if style == "strips" else 3.0
+    fig_h = 2.4 if style == "strips" and show_segments else 2.0 if style == "strips" else 3.0
     fig, ax = plt.subplots(figsize=(12, fig_h))
     uri = clip_df["clip_s3_uri"].iloc[0] if "clip_s3_uri" in clip_df.columns else ""
     title = f"{clip_key}" + (f"\n{uri}" if isinstance(uri, str) and uri else "")
-    _plot_panel(ax, clip_df, title=title, style=style, show_prob=show_prob)
+    _plot_panel(
+        ax,
+        clip_df,
+        title=title,
+        style=style,
+        show_prob=show_prob,
+        show_segments=show_segments,
+        segment_threshold=segment_threshold,
+        segment_window_frames=segment_window_frames,
+        segment_aggregation=segment_aggregation,
+        segment_max_gap_frames=segment_max_gap_frames,
+        segment_min_segment_frames=segment_min_segment_frames,
+    )
     ax.set_xlabel("frame_idx")
     fig.tight_layout()
     return fig
@@ -301,13 +420,19 @@ def plot_stacked_panels(
     *,
     style: str,
     show_prob: bool,
+    show_segments: bool,
+    segment_threshold: float,
+    segment_window_frames: int,
+    segment_aggregation: str,
+    segment_max_gap_frames: int,
+    segment_min_segment_frames: int,
     suptitle: str,
 ) -> plt.Figure:
     n = len(panels)
     if n == 0:
         raise SystemExit("no panels to plot")
 
-    row_h = 1.15 if style == "strips" else 2.2
+    row_h = 1.45 if style == "strips" and show_segments else 1.15 if style == "strips" else 2.2
     fig_h = max(row_h * n, 2.5 if style == "strips" else 3.0)
     fig, axes = plt.subplots(n, 1, figsize=(12, fig_h), sharex=False)
     if n == 1:
@@ -324,6 +449,12 @@ def plot_stacked_panels(
             x_col=x_col,
             show_prob=show_prob,
             mark_clip_boundaries=boundaries,
+            show_segments=show_segments,
+            segment_threshold=segment_threshold,
+            segment_window_frames=segment_window_frames,
+            segment_aggregation=segment_aggregation,
+            segment_max_gap_frames=segment_max_gap_frames,
+            segment_min_segment_frames=segment_min_segment_frames,
         )
         if style == "lines":
             ax.set_ylabel("")
@@ -358,12 +489,26 @@ def default_out_path(csv_path: Path, args: argparse.Namespace) -> Path:
 def main() -> int:
     args = parse_args()
     df = load_preds_csv(args.csv.expanduser().resolve())
+    segment_threshold = _segment_threshold(df, args.segment_threshold)
 
     if args.show_prob and args.style != "lines":
         raise SystemExit("--show-prob only applies with --style lines")
+    if args.show_segments and args.style != "strips":
+        raise SystemExit("--show-segments only applies with --style strips")
 
     if args.clip:
-        fig = plot_single_clip(df, args.clip, style=args.style, show_prob=args.show_prob)
+        fig = plot_single_clip(
+            df,
+            args.clip,
+            style=args.style,
+            show_prob=args.show_prob,
+            show_segments=args.show_segments,
+            segment_threshold=segment_threshold,
+            segment_window_frames=args.segment_window_frames,
+            segment_aggregation=args.segment_aggregation,
+            segment_max_gap_frames=args.segment_max_gap_frames,
+            segment_min_segment_frames=args.segment_min_segment_frames,
+        )
     elif args.source:
         panels = _panels_for_sources(df, [args.source])
         if not panels or panels[0][1].empty:
@@ -372,6 +517,12 @@ def main() -> int:
             panels,
             style=args.style,
             show_prob=args.show_prob,
+            show_segments=args.show_segments,
+            segment_threshold=segment_threshold,
+            segment_window_frames=args.segment_window_frames,
+            segment_aggregation=args.segment_aggregation,
+            segment_max_gap_frames=args.segment_max_gap_frames,
+            segment_min_segment_frames=args.segment_min_segment_frames,
             suptitle=f"source_id={args.source}",
         )
     elif args.all_sources:
@@ -383,6 +534,12 @@ def main() -> int:
             panels,
             style=args.style,
             show_prob=args.show_prob,
+            show_segments=args.show_segments,
+            segment_threshold=segment_threshold,
+            segment_window_frames=args.segment_window_frames,
+            segment_aggregation=args.segment_aggregation,
+            segment_max_gap_frames=args.segment_max_gap_frames,
+            segment_min_segment_frames=args.segment_min_segment_frames,
             suptitle="Test set — one row per video (source_id)",
         )
     else:
@@ -394,6 +551,12 @@ def main() -> int:
             panels,
             style=args.style,
             show_prob=args.show_prob,
+            show_segments=args.show_segments,
+            segment_threshold=segment_threshold,
+            segment_window_frames=args.segment_window_frames,
+            segment_aggregation=args.segment_aggregation,
+            segment_max_gap_frames=args.segment_max_gap_frames,
+            segment_min_segment_frames=args.segment_min_segment_frames,
             suptitle="Test set — one row per clip",
         )
 

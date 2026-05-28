@@ -18,7 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from feature_extraction.clip_split import assign_train_test  # noqa: E402
+from feature_extraction.clip_split import (  # noqa: E402
+    assign_train_test,
+    assign_train_test_from_source_manifest,
+)
 from feature_extraction.core.clip_selection import ClipSpec, list_eligible_clips  # noqa: E402
 from feature_extraction.core.paths import clip_stem  # noqa: E402
 from feature_extraction.finalize_run import finalize_run_from_plan  # noqa: E402
@@ -120,15 +123,32 @@ def build_plan(
     split_seed: int,
     max_frames: int | None,
     label_fps: float,
+    split_manifest: Path | None = None,
+    split_eval_group: str = "test",
 ) -> dict[str, Any]:
-    train_clips, test_clips, split_meta = assign_train_test(
-        specs,
-        test_fraction=test_fraction,
-        seed=split_seed,
-    )
+    if split_manifest is not None:
+        train_clips, test_clips, split_meta = assign_train_test_from_source_manifest(
+            specs,
+            manifest_path=split_manifest,
+            eval_group=split_eval_group,
+        )
+    else:
+        train_clips, test_clips, split_meta = assign_train_test(
+            specs,
+            test_fraction=test_fraction,
+            seed=split_seed,
+        )
     train_ids = {c.clip_id for c in train_clips}
+    test_ids = {c.clip_id for c in test_clips}
+    assigned_ids = train_ids | test_ids
+    skipped_specs = [spec for spec in specs if spec.clip_id not in assigned_ids]
+    if skipped_specs:
+        split_meta["skipped_source_ids"] = sorted({s.source_id for s in skipped_specs})
+        split_meta["skipped_clip_ids"] = [s.clip_id for s in skipped_specs]
     clips = []
     for spec in specs:
+        if spec.clip_id not in assigned_ids:
+            continue
         split = "train" if spec.clip_id in train_ids else "test"
         clips.append(
             {
@@ -453,6 +473,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-clips", type=int, default=None)
     p.add_argument("--test-fraction", type=float, default=0.2)
     p.add_argument("--split-seed", type=int, default=42)
+    p.add_argument(
+        "--split-manifest",
+        type=Path,
+        default=None,
+        help="Source-level split manifest JSON for full-video evaluation.",
+    )
+    p.add_argument(
+        "--split-eval-group",
+        choices=("test", "shift"),
+        default="test",
+        help="Source group from --split-manifest to write as test/ parquets.",
+    )
     p.add_argument("--label-fps", type=float, default=30.0)
     p.add_argument("--max-frames", type=int, default=None)
     p.add_argument("--bucket", type=str, default=None)
@@ -570,11 +602,15 @@ def main() -> int:
         split_seed=args.split_seed,
         max_frames=args.max_frames,
         label_fps=args.label_fps,
+        split_manifest=args.split_manifest,
+        split_eval_group=args.split_eval_group,
     )
     write_plan(plan_path, plan)
     logger.info("wrote plan %s (%d clips)", plan_path, len(plan["clips"]))
     for c in plan["clips"]:
         logger.info("  clip_id=%s %s_%03d -> %s", c["clip_id"], c["source_id"], c["clip_index"], c["split"])
+    for clip_id in plan.get("split_meta", {}).get("skipped_clip_ids") or []:
+        logger.info("  clip_id=%s -> skipped", clip_id)
 
     if args.plan_only:
         if args.resume:

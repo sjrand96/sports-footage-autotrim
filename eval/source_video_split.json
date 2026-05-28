@@ -1,0 +1,43 @@
+{
+  "name": "source_video_split",
+  "created_at": "2026-05-27T00:00:00+00:00",
+  "split_method": "source_level_manifest_v1",
+  "split_seed": 42,
+  "test_fraction": 0.2,
+  "source_ids": [
+    "1rXZJyVXUHU",
+    "2crSZaHIBaY",
+    "6rRMEXuLAng",
+    "ANwMhMfcwGM",
+    "Fr3ue3w5QRY",
+    "GRuOSrz3kdY",
+    "Gzx01gOde80",
+    "RCbQVAISMcU",
+    "TRt7udwisVU",
+    "Y0l5bl2Bp-M",
+    "jZ18INu4LQc",
+    "vq3CZAx3GnM",
+    "xDEe3bIX628"
+  ],
+  "train_source_ids": [
+    "1rXZJyVXUHU",
+    "2crSZaHIBaY",
+    "6rRMEXuLAng",
+    "ANwMhMfcwGM",
+    "Fr3ue3w5QRY",
+    "GRuOSrz3kdY",
+    "jZ18INu4LQc",
+    "vq3CZAx3GnM"
+  ],
+  "test_source_ids": [
+    "Gzx01gOde80",
+    "Y0l5bl2Bp-M",
+    "xDEe3bIX628"
+  ],
+  "distribution_shift_source_ids": [
+    "RCbQVAISMcU",
+    "TRt7udwisVU"
+  ],
+  "unlabeled_source_ids": [],
+  "notes": "Source-level split from project datasheet: Train videos for model fitting, Test videos for in-distribution full-video evaluation, Shift Clip videos for distribution-shift evaluation."
+}

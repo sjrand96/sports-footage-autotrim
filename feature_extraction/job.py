@@ -17,7 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from feature_extraction.clip_split import assign_train_test  # noqa: E402
+from feature_extraction.clip_split import (  # noqa: E402
+    assign_train_test,
+    assign_train_test_from_source_manifest,
+)
 from feature_extraction.core.clip_selection import (  # noqa: E402
     ClipSpec,
     clip_spec_by_id,
@@ -230,8 +233,18 @@ def _split_meta_from_manifest(manifest: dict[str, Any] | None) -> dict[str, Any]
         return {}
     keys = (
         "split_method",
+        "split_manifest_path",
+        "split_eval_group",
         "split_seed",
         "test_fraction",
+        "train_source_ids",
+        "test_source_ids",
+        "distribution_shift_source_ids",
+        "unlabeled_source_ids",
+        "missing_train_source_ids",
+        "missing_eval_source_ids",
+        "skipped_source_ids",
+        "skipped_clip_ids",
         "train_clip_ids",
         "test_clip_ids",
     )
@@ -442,6 +455,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-clips", type=int, default=None, help="Cap clips when using full eligible list")
     p.add_argument("--test-fraction", type=float, default=0.2, help="Random placeholder test fraction")
     p.add_argument("--split-seed", type=int, default=42, help="RNG seed for train/test placeholder split")
+    p.add_argument(
+        "--split-manifest",
+        type=Path,
+        default=None,
+        help="Source-level split manifest JSON for full-video evaluation.",
+    )
+    p.add_argument(
+        "--split-eval-group",
+        choices=("test", "shift"),
+        default="test",
+        help="Source group from --split-manifest to write as test/ parquets.",
+    )
     p.add_argument("--label-fps", type=float, default=DEFAULT_LABEL_FPS)
     p.add_argument("--region", type=str, default=DEFAULT_REGION)
     p.add_argument("--skip-download", action="store_true")
@@ -511,6 +536,9 @@ def main() -> int:
         args.upload_s3 = True
     if args.test_fraction <= 0 or args.test_fraction >= 1:
         logger.error("--test-fraction must be in (0, 1)")
+        return 1
+    if args.force_split and args.split_manifest is not None:
+        logger.error("--force-split and --split-manifest cannot be used together")
         return 1
     if args.force_split and args.clip_id and len(args.clip_id) > 1:
         logger.error("--force-split with multiple --clip-id values is not supported")
@@ -584,6 +612,13 @@ def main() -> int:
             "train_clip_ids": [specs[0].clip_id] if forced == "train" else [],
             "test_clip_ids": [specs[0].clip_id] if forced == "test" else [],
         }
+    elif args.split_manifest is not None:
+        train_clips, test_clips, split_meta = assign_train_test_from_source_manifest(
+            specs,
+            manifest_path=args.split_manifest,
+            eval_group=args.split_eval_group,
+        )
+        split_by_id = _clip_split_map(train_clips, test_clips)
     else:
         train_clips, test_clips, split_meta = assign_train_test(
             specs,
@@ -594,19 +629,34 @@ def main() -> int:
 
     n_train = sum(1 for v in split_by_id.values() if v == "train")
     n_test = sum(1 for v in split_by_id.values() if v == "test")
+    specs_to_process = [s for s in specs if s.clip_id in split_by_id]
+    skipped_specs = [s for s in specs if s.clip_id not in split_by_id]
+    if skipped_specs:
+        skipped_sources = sorted({s.source_id for s in skipped_specs})
+        split_meta["skipped_source_ids"] = skipped_sources
+        split_meta["skipped_clip_ids"] = [s.clip_id for s in skipped_specs]
     logger.info("run_id=%s", run_id)
-    logger.info("eligible clips: %d (train=%d test=%d)", len(specs), n_train, n_test)
-    for s in specs:
+    logger.info(
+        "eligible clips: %d (assigned=%d train=%d test=%d skipped=%d)",
+        len(specs),
+        len(specs_to_process),
+        n_train,
+        n_test,
+        len(skipped_specs),
+    )
+    for s in specs_to_process:
         logger.info("  %s_%03d clip_id=%d -> %s", s.source_id, s.clip_index, s.clip_id, split_by_id[s.clip_id])
+    for s in skipped_specs:
+        logger.info("  %s_%03d clip_id=%d -> skipped", s.source_id, s.clip_index, s.clip_id)
 
     if args.dry_run:
         return 0
 
-    specs_by_stem = _specs_stem_map(specs)
+    specs_by_stem = _specs_stem_map(specs_to_process)
     run_report = RunReport()
     run_started_at = datetime.now(timezone.utc)
 
-    for spec in specs:
+    for spec in specs_to_process:
         split = split_by_id[spec.clip_id]
         logger.info("processing %s_%03d [%s]", spec.source_id, spec.clip_index, split)
         try:

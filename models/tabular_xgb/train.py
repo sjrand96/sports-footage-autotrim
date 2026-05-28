@@ -204,6 +204,8 @@ def _fbeta_metric_key(beta: float) -> str:
 def test_predictions_to_csv(test_out: pd.DataFrame) -> pd.DataFrame:
     """Narrow frame for eval viz: one row per test frame, sorted by clip then frame."""
     col_map = {
+        "source_id": "source_id",
+        "clip_index": "clip_index",
         "clip_key": "clip_key",
         "clip_s3_uri": "clip_s3_uri",
         "frame_idx": "frame_idx",
@@ -219,7 +221,9 @@ def test_predictions_to_csv(test_out: pd.DataFrame) -> pd.DataFrame:
     out = test_out[list(col_map.keys())].rename(columns=col_map)
     out["pred_playing"] = out["pred_playing"].astype(int)
     out["is_playing"] = out["is_playing"].astype(int)
-    return out.sort_values(["clip_key", "frame_idx"], kind="stable").reset_index(drop=True)
+    out["model_name"] = "xgboost"
+    out["split_name"] = "test"
+    return out.sort_values(["source_id", "clip_index", "frame_idx"], kind="stable").reset_index(drop=True)
 
 
 def build_xgb_classifier(args: argparse.Namespace, *, scale_pos_weight: float) -> XGBClassifier:
