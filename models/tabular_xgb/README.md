@@ -69,3 +69,12 @@ With `--no-tune-threshold`, threshold **0.5** is used. Reports include both tune
 ```
 
 Requires both `train/` and `test/` to contain at least one parquet each (sync from S3 or run locally).
+
+## FPS sensitivity (`fps_sensitivity.py`)
+
+Simulates lower extract/inference FPS: subsample every *n*th frame **within each clip** (default FPS: 30, 15, 10, 5, 2, 1, 0.5), retrain XGB each time, evaluate with a **fixed** `decision_threshold` (from `xgb_report.json`, else 0.24). Includes an **always predict playing** baseline per FPS (recall=1; shows Fβ from label prevalence). Writes `fps_sensitivity.csv`, `.json`, and `.png`. No W&B.
+
+```bash
+.venv/bin/python models/tabular_xgb/fps_sensitivity.py \
+  --feature-run-id full_127_limitedconcurr_20260518
+```
