@@ -2,6 +2,27 @@
 
 **CS348K —** Build toward **automatic volleyball trims**: long casual match footage (lots of downtime) → **when play is happening** → a shorter **gameplay-focused** cut. Human labels on short clips are the ground truth for models and evaluation later.
 
+## Project Motivation and Overview
+Take the below 1-minute video as an example of uncut, raw volleyball footage.
+
+https://github.com/user-attachments/assets/875c2adf-014b-405b-859a-3af38085dcf6
+
+A human cutting this video would do the following:
+- watch the footage and identify all the video segments that are active plays.
+- cut out the footage in between plays. 
+
+We've provided an example of what this cut would look like below (keeping only the segments marked in **green**).
+
+<image src="./data/sample_data/sample-label.png"></image>
+
+As you can see, active play only accounts for about **44%** of the entire video. Here's an example of the same video with the downtime cut out. The cut video is **less than half** the length of the original, but keeps all the play.
+
+https://github.com/user-attachments/assets/14d3b007-6cc3-419e-b6c7-d3284d6339ae
+
+Cut video is easier to store (smaller memory footprint) and easier to rewatch (less downtime to skip past). However, manually editing volleyball footage is a tedious process. 
+
+The goal of this project is to produce a volleyball video action segmentation model that can identify video segments of active play vs downtime. From the model's output, we can provide a cut video that is comparable to what a human would output.
+
 ## Where things live
 
 | Path | What it is |

@@ -1,0 +1,469 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import PlaybackTimeline from './PlaybackTimeline.jsx'
+import {
+  gatePlaySelectedOnly,
+  snapTimeForSelectedPlayStart,
+  sortIntervals,
+} from './selectedIntervalPlayback.js'
+import { playingIntervalsSecondsFromFramePredictionsCsv } from './framePredictionsImport.js'
+import { playingIntervalsSecondsFromLabelJson } from './labelStudioImport.js'
+import {
+  canExportCut,
+  defaultCutOutputName,
+  exportCutVideo,
+  getLocalVideoPath,
+} from './exportCutVideo.js'
+import './App.css'
+
+const MIN_INTERVAL_SEC = 0.05
+
+function applyImportedIntervals(imported, nextId) {
+  return imported.map((iv) => ({
+    id: nextId(),
+    start: iv.start,
+    end: iv.end,
+  }))
+}
+
+export default function App() {
+  const videoRef = useRef(null)
+  const sourceFileRef = useRef(null)
+  const sourceFilePathRef = useRef(null)
+  const intervalIdRef = useRef(0)
+  const groundTruthIntervalIdRef = useRef(0)
+  const [appMode, setAppMode] = useState('evaluation')
+  const [sourceUrl, setSourceUrl] = useState(null)
+  const [fileLabel, setFileLabel] = useState('')
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [intervals, setIntervals] = useState([])
+  const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
+  const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
+  const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
+  const [editorLabelsImportName, setEditorLabelsImportName] = useState('')
+  const [groundTruthLabelsImportName, setGroundTruthLabelsImportName] =
+    useState('')
+  const [labelsImportError, setLabelsImportError] = useState('')
+  const [exportStatus, setExportStatus] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const revokeUrl = useCallback((url) => {
+    if (url && url.startsWith('blob:')) {
+      URL.revokeObjectURL(url)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => revokeUrl(sourceUrl)
+  }, [sourceUrl, revokeUrl])
+
+  const nextIntervalId = useCallback(() => {
+    intervalIdRef.current += 1
+    return `iv-${intervalIdRef.current}`
+  }, [])
+
+  const nextGroundTruthIntervalId = useCallback(() => {
+    groundTruthIntervalIdRef.current += 1
+    return `gt-${groundTruthIntervalIdRef.current}`
+  }, [])
+
+  const onPickFile = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    revokeUrl(sourceUrl)
+    sourceFileRef.current = file
+    sourceFilePathRef.current = getLocalVideoPath(file)
+    const url = URL.createObjectURL(file)
+    setSourceUrl(url)
+    setFileLabel(file.name)
+    setCurrentTime(0)
+    setDuration(0)
+    setIsPlaying(false)
+    setIntervals([])
+    setGroundTruthIntervals([])
+    setPredictLabelsImportName('')
+    setEditorLabelsImportName('')
+    setGroundTruthLabelsImportName('')
+    setLabelsImportError('')
+    setExportStatus('')
+  }
+
+  const importLabelsFromFile = useCallback(
+    (file, raw, { target }) => {
+      const isCsv = /\.csv$/i.test(file.name)
+      const { intervals: imported, error } = isCsv
+        ? playingIntervalsSecondsFromFramePredictionsCsv(raw, fileLabel, duration)
+        : playingIntervalsSecondsFromLabelJson(raw, fileLabel, duration)
+
+      if (error) {
+        if (target === 'editor') setEditorLabelsImportName('')
+        else if (target === 'predicted') setPredictLabelsImportName('')
+        else setGroundTruthLabelsImportName('')
+        setLabelsImportError(error)
+        return false
+      }
+
+      const withIds = applyImportedIntervals(
+        imported,
+        target === 'groundTruth' ? nextGroundTruthIntervalId : nextIntervalId,
+      )
+
+      if (target === 'editor') {
+        setIntervals(withIds)
+        setGroundTruthIntervals([])
+        setEditorLabelsImportName(file.name)
+        setPredictLabelsImportName('')
+        setGroundTruthLabelsImportName('')
+      } else if (target === 'predicted') {
+        setIntervals(withIds)
+        setPredictLabelsImportName(file.name)
+      } else {
+        setGroundTruthIntervals(withIds)
+        setGroundTruthLabelsImportName(file.name)
+      }
+
+      setLabelsImportError('')
+      return true
+    },
+    [duration, fileLabel, nextGroundTruthIntervalId, nextIntervalId],
+  )
+
+  const onPickEditorLabels = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file || !Number.isFinite(duration) || duration <= 0) {
+        setEditorLabelsImportName('')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => importLabelsFromFile(file, reader.result, { target: 'editor' })
+      reader.onerror = () => setEditorLabelsImportName('')
+      reader.readAsText(file)
+    },
+    [duration, importLabelsFromFile],
+  )
+
+  const onPickPredictedLabels = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file || !Number.isFinite(duration) || duration <= 0) {
+        setPredictLabelsImportName('')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => importLabelsFromFile(file, reader.result, { target: 'predicted' })
+      reader.onerror = () => setPredictLabelsImportName('')
+      reader.readAsText(file)
+    },
+    [duration, importLabelsFromFile],
+  )
+
+  const onPickGroundTruthLabels = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file || !Number.isFinite(duration) || duration <= 0) {
+        setGroundTruthLabelsImportName('')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => importLabelsFromFile(file, reader.result, { target: 'groundTruth' })
+      reader.onerror = () => setGroundTruthLabelsImportName('')
+      reader.readAsText(file)
+    },
+    [duration, importLabelsFromFile],
+  )
+
+  const onExportCutVideo = useCallback(async () => {
+    setExportStatus('')
+    setLabelsImportError('')
+    const file = sourceFileRef.current
+    const inputPath =
+      sourceFilePathRef.current ?? getLocalVideoPath(file)
+    if (!canExportCut(intervals)) {
+      setExportStatus('Add at least one playing interval before exporting.')
+      return
+    }
+
+    setIsExporting(true)
+    try {
+      const result = await exportCutVideo({
+        inputPath,
+        intervals,
+        suggestedName: defaultCutOutputName(fileLabel),
+      })
+      if (result.ok) {
+        setExportStatus(`Saved to ${result.outputPath}`)
+      } else if (!result.cancelled) {
+        setExportStatus(result.error)
+      }
+    } finally {
+      setIsExporting(false)
+    }
+  }, [fileLabel, intervals])
+
+  const onTimeUpdate = () => {
+    const v = videoRef.current
+    if (!v) return
+    setCurrentTime(v.currentTime)
+    if (playSelectedOnly && !v.paused) {
+      gatePlaySelectedOnly(v, intervals)
+    }
+  }
+
+  const onLoadedMetadata = () => {
+    const v = videoRef.current
+    if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return
+    setDuration(v.duration)
+  }
+
+  const seek = useCallback((t) => {
+    const v = videoRef.current
+    if (!v || !Number.isFinite(t)) return
+    const d = v.duration
+    const clamped = Math.min(Math.max(0, t), Number.isFinite(d) && d > 0 ? d : t)
+    v.currentTime = clamped
+    setCurrentTime(clamped)
+  }, [])
+
+  const onIntervalBoundaryChange = useCallback(
+    (id, edge, rawTime) => {
+      if (!Number.isFinite(duration) || duration <= 0) return
+      setIntervals((prev) => {
+        const sorted = [...prev].sort((a, b) => a.start - b.start)
+        const i = sorted.findIndex((x) => x.id === id)
+        if (i < 0) return prev
+        const cur = { ...sorted[i] }
+        const before = sorted[i - 1]
+        const after = sorted[i + 1]
+
+        if (edge === 'start') {
+          const minS = before ? before.end + MIN_INTERVAL_SEC : 0
+          const maxS = cur.end - MIN_INTERVAL_SEC
+          cur.start = Math.min(Math.max(rawTime, minS), maxS)
+          seek(cur.start)
+        } else {
+          const minE = cur.start + MIN_INTERVAL_SEC
+          const maxE = after ? after.start - MIN_INTERVAL_SEC : duration
+          cur.end = Math.min(Math.max(rawTime, minE), maxE)
+          seek(cur.end)
+        }
+
+        const out = [...sorted]
+        out[i] = cur
+        return out
+      })
+    },
+    [duration, seek],
+  )
+
+  const togglePlay = () => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) {
+      if (playSelectedOnly) {
+        if (sortIntervals(intervals).length === 0) return
+        const snap = snapTimeForSelectedPlayStart(v.currentTime, intervals)
+        if (snap != null) v.currentTime = snap
+      }
+      void v.play()
+    } else {
+      v.pause()
+    }
+  }
+
+  useEffect(() => {
+    if (!playSelectedOnly) return
+    const v = videoRef.current
+    if (!v || v.paused) return
+    gatePlaySelectedOnly(v, intervals)
+  }, [playSelectedOnly, intervals])
+
+  const isEditor = appMode === 'editor'
+  const exportReady = isEditor && duration > 0 && canExportCut(intervals)
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1 className="title">Volleyball Video Editor</h1>
+        <div className="app-header-actions">
+          <div className="mode-toggle" role="group" aria-label="Application mode">
+            <button
+              type="button"
+              className={`mode-toggle-btn${isEditor ? ' mode-toggle-btn--active' : ''}`}
+              aria-pressed={isEditor}
+              onClick={() => setAppMode('editor')}
+            >
+              Editor
+            </button>
+            <button
+              type="button"
+              className={`mode-toggle-btn${!isEditor ? ' mode-toggle-btn--active' : ''}`}
+              aria-pressed={!isEditor}
+              onClick={() => setAppMode('evaluation')}
+            >
+              Evaluation
+            </button>
+          </div>
+          <label className="file-button">
+            Open video
+            <input type="file" accept="video/*" onChange={onPickFile} hidden />
+          </label>
+        </div>
+      </header>
+
+      <main className="main">
+        {!sourceUrl ? (
+          <div className="empty-state">
+            <p>Choose a video file to preview and scrub the timeline.</p>
+            <label className="file-button large">
+              Select video
+              <input type="file" accept="video/*" onChange={onPickFile} hidden />
+            </label>
+          </div>
+        ) : (
+          <div className="viewer-layout">
+            <div className="viewer-main">
+              <div className="video-wrap">
+                <video
+                  ref={videoRef}
+                  className="video"
+                  src={sourceUrl}
+                  playsInline
+                  draggable={false}
+                  onTimeUpdate={onTimeUpdate}
+                  onLoadedMetadata={onLoadedMetadata}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                />
+              </div>
+
+              <div className="controls">
+                <div className="file-row">
+                  <span className="file-name" title={fileLabel}>
+                    {fileLabel}
+                  </span>
+
+                  {isEditor ? (
+                    <>
+                      <div className="import-json-slot import-json-slot--editor">
+                        <label
+                          className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                        >
+                          Import labels
+                          <input
+                            type="file"
+                            accept="application/json,.json,text/csv,.csv"
+                            onChange={onPickEditorLabels}
+                            disabled={!duration}
+                            hidden
+                          />
+                        </label>
+                        {editorLabelsImportName ? (
+                          <span
+                            className="labels-json-filename"
+                            title={editorLabelsImportName}
+                          >
+                            {editorLabelsImportName}
+                          </span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className={`file-button file-button--secondary${!exportReady || isExporting ? ' file-button--disabled' : ''}`}
+                        disabled={!exportReady || isExporting}
+                        onClick={onExportCutVideo}
+                      >
+                        {isExporting ? 'Exporting…' : 'Export cut video'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="import-json-slot import-json-slot--predicted">
+                        <label
+                          className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                        >
+                          Import predicted labels
+                          <input
+                            type="file"
+                            accept="application/json,.json,text/csv,.csv"
+                            onChange={onPickPredictedLabels}
+                            disabled={!duration}
+                            hidden
+                          />
+                        </label>
+                        {predictLabelsImportName ? (
+                          <span
+                            className="labels-json-filename"
+                            title={predictLabelsImportName}
+                          >
+                            {predictLabelsImportName}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="import-json-slot import-json-slot--truth">
+                        <label
+                          className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
+                        >
+                          Import ground truth labels
+                          <input
+                            type="file"
+                            accept="application/json,.json"
+                            onChange={onPickGroundTruthLabels}
+                            disabled={!duration}
+                            hidden
+                          />
+                        </label>
+                        {groundTruthLabelsImportName ? (
+                          <span
+                            className="labels-json-filename"
+                            title={groundTruthLabelsImportName}
+                          >
+                            {groundTruthLabelsImportName}
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {labelsImportError ? (
+                  <p className="labels-import-error" role="alert">
+                    {labelsImportError}
+                  </p>
+                ) : null}
+
+                {exportStatus ? (
+                  <p
+                    className={`labels-import-status${exportStatus.startsWith('Saved') ? ' labels-import-status--ok' : ''}`}
+                    role="status"
+                  >
+                    {exportStatus}
+                  </p>
+                ) : null}
+
+                <div className="playback-block">
+                  <PlaybackTimeline
+                    mode={appMode}
+                    duration={duration}
+                    currentTime={currentTime}
+                    intervals={intervals}
+                    groundTruthIntervals={groundTruthIntervals}
+                    isPlaying={isPlaying}
+                    onTogglePlay={togglePlay}
+                    onSeek={seek}
+                    onIntervalBoundaryChange={onIntervalBoundaryChange}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
