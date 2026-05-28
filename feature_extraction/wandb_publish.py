@@ -39,6 +39,22 @@ def wandb_publish_enabled(explicit: bool | None = None) -> bool:
     return bool(os.environ.get("WANDB_API_KEY", "").strip())
 
 
+def wandb_group_for_feature_run(feature_run_id: str) -> str:
+    """W&B ``group`` — collapses publish + train runs for one feature extract run in the UI."""
+    return _sanitize_wandb_key(feature_run_id)
+
+
+def wandb_publish_run_id(feature_run_id: str) -> str:
+    """Stable W&B run id so re-publishing updates one shell run instead of adding rows."""
+    return _sanitize_wandb_key(f"fe-publish-{feature_run_id}")[:128]
+
+
+def _sanitize_wandb_key(value: str) -> str:
+    chars = [c if c.isalnum() or c in "-_" else "-" for c in value.strip()]
+    key = "".join(chars).strip("-")
+    return key or "run"
+
+
 def publish_feature_run_artifact(
     *,
     run_id: str,
@@ -90,9 +106,12 @@ def publish_feature_run_artifact(
     wb_run = wandb.init(
         entity=entity,
         project=project,
+        id=wandb_publish_run_id(run_id),
+        resume="allow",
+        group=wandb_group_for_feature_run(run_id),
         job_type="publish_features",
         name=f"features-{run_id}",
-        tags=["feature-extraction", "dataset"],
+        tags=["feature-extraction", "dataset", f"feature_run:{run_id}"],
         config=metadata,
         reinit="finish_previous",
     )
