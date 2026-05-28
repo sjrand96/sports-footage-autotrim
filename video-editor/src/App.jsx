@@ -39,6 +39,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [intervals, setIntervals] = useState([])
   const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
+  const [showGroundTruth, setShowGroundTruth] = useState(false)
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
   const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
   const [editorLabelsImportName, setEditorLabelsImportName] = useState('')
@@ -83,6 +84,7 @@ export default function App() {
     setIsPlaying(false)
     setIntervals([])
     setGroundTruthIntervals([])
+    setShowGroundTruth(false)
     setPredictLabelsImportName('')
     setEditorLabelsImportName('')
     setGroundTruthLabelsImportName('')
@@ -93,9 +95,30 @@ export default function App() {
   const importLabelsFromFile = useCallback(
     (file, raw, { target }) => {
       const isCsv = /\.csv$/i.test(file.name)
-      const { intervals: imported, error } = isCsv
-        ? playingIntervalsSecondsFromFramePredictionsCsv(raw, fileLabel, duration)
-        : playingIntervalsSecondsFromLabelJson(raw, fileLabel, duration)
+      let imported
+      let csvGroundTruth
+      let hasGroundTruthColumn = false
+      let error
+
+      if (isCsv) {
+        const csvResult = playingIntervalsSecondsFromFramePredictionsCsv(
+          raw,
+          fileLabel,
+          duration,
+        )
+        imported = csvResult.intervals
+        csvGroundTruth = csvResult.groundTruthIntervals
+        hasGroundTruthColumn = csvResult.hasGroundTruthColumn === true
+        error = csvResult.error
+      } else {
+        const jsonResult = playingIntervalsSecondsFromLabelJson(
+          raw,
+          fileLabel,
+          duration,
+        )
+        imported = jsonResult.intervals
+        error = jsonResult.error
+      }
 
       if (error) {
         if (target === 'editor') setEditorLabelsImportName('')
@@ -113,14 +136,30 @@ export default function App() {
       if (target === 'editor') {
         setIntervals(withIds)
         setGroundTruthIntervals([])
+        setShowGroundTruth(false)
         setEditorLabelsImportName(file.name)
         setPredictLabelsImportName('')
         setGroundTruthLabelsImportName('')
       } else if (target === 'predicted') {
         setIntervals(withIds)
         setPredictLabelsImportName(file.name)
+        if (hasGroundTruthColumn) {
+          setGroundTruthIntervals(
+            applyImportedIntervals(
+              csvGroundTruth ?? [],
+              nextGroundTruthIntervalId,
+            ),
+          )
+          setShowGroundTruth(true)
+          setGroundTruthLabelsImportName('')
+        } else {
+          setGroundTruthIntervals([])
+          setShowGroundTruth(false)
+          setGroundTruthLabelsImportName('')
+        }
       } else {
         setGroundTruthIntervals(withIds)
+        setShowGroundTruth(true)
         setGroundTruthLabelsImportName(file.name)
       }
 
@@ -453,6 +492,7 @@ export default function App() {
                     currentTime={currentTime}
                     intervals={intervals}
                     groundTruthIntervals={groundTruthIntervals}
+                    showGroundTruth={showGroundTruth}
                     isPlaying={isPlaying}
                     onTogglePlay={togglePlay}
                     onSeek={seek}
