@@ -36,7 +36,7 @@ export default function App() {
   const sourceFilePathRef = useRef(null)
   const intervalIdRef = useRef(0)
   const groundTruthIntervalIdRef = useRef(0)
-  const [appMode, setAppMode] = useState('evaluation')
+  const [appMode, setAppMode] = useState('editor')
   const [sourceUrl, setSourceUrl] = useState(null)
   const [fileLabel, setFileLabel] = useState('')
   const [duration, setDuration] = useState(0)
