@@ -6,10 +6,12 @@ const EPS = 1e-9
 
 /** @typedef {{ start: number, end: number }} Span */
 
-/** Defaults aligned with training eval gap (0.5s) and ~10 frames at 30 fps. */
+/** Defaults aligned with training eval gap (0.5s) and planned postprocessor padding. */
 export const DEFAULT_SMOOTH_OPTS = {
   maxGapSec: 0.5,
   minPlaySec: 1,
+  /** Seconds added before start and after end of each segment (pass 3). */
+  padSec: 1,
 }
 
 /**
@@ -45,15 +47,38 @@ export function dropShortSpans(spans, minPlaySec) {
 }
 
 /**
- * Two-pass interval smoothing: merge across gaps, then remove short positives.
+ * Pass 3: extend each segment by padSec on both sides, clamp to clip, merge overlaps.
+ * @param {Span[]} spans
+ * @param {number} padSec
+ * @param {number} durationSec
+ */
+export function padSpans(spans, padSec, durationSec) {
+  if (spans.length === 0) return []
+  if (!(padSec > 0)) return spans.map((iv) => ({ start: iv.start, end: iv.end }))
+
+  const d =
+    durationSec != null && Number.isFinite(durationSec) && durationSec > 0
+      ? durationSec
+      : Infinity
+
+  const padded = spans.map((iv) => ({
+    start: Math.max(0, iv.start - padSec),
+    end: Math.min(d, iv.end + padSec),
+  }))
+  return mergeIntervals(padded, durationSec)
+}
+
+/**
+ * Three-pass smoothing: merge gaps, drop short positives, pad and merge overlaps.
  * @param {Span[]} spans
  * @param {number} durationSec
- * @param {{ maxGapSec?: number, minPlaySec?: number }} [opts]
+ * @param {{ maxGapSec?: number, minPlaySec?: number, padSec?: number }} [opts]
  */
 export function smoothPlayingIntervals(spans, durationSec, opts = {}) {
-  const { maxGapSec, minPlaySec } = { ...DEFAULT_SMOOTH_OPTS, ...opts }
+  const { maxGapSec, minPlaySec, padSec } = { ...DEFAULT_SMOOTH_OPTS, ...opts }
   let merged = mergeIntervals(spans, durationSec)
   merged = mergeAcrossGaps(merged, maxGapSec)
   merged = dropShortSpans(merged, minPlaySec)
+  merged = padSpans(merged, padSec, durationSec)
   return merged
 }
