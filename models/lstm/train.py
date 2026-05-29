@@ -62,7 +62,7 @@ BACKBONE = default_backbone()
 TRAIN_CLIPS_CSV = DEFAULT_TRAIN_CLIPS_CSV
 TEST_CLIPS_CSV = DEFAULT_TEST_CLIPS_CSV
 BATCH_SIZE = 32
-EPOCHS = 10
+EPOCHS = 20
 LR = 1e-4
 WEIGHT_DECAY = 1e-4  # AdamW L2; set 0 to disable
 NUM_WORKERS = 0
@@ -74,7 +74,7 @@ LSTM_HIDDEN_SIZE = 128
 LSTM_NUM_LAYERS = 1
 LSTM_DROPOUT = 0.0  # only used when LSTM_NUM_LAYERS > 1 (between LSTM layers)
 HEAD_DROPOUT = 0.3  # on BiLSTM output before the linear head (active in train mode)
-DEFAULT_CHECKPOINT_METRIC = "loss"  # loss | recall | cost | f_beta
+DEFAULT_CHECKPOINT_METRIC = "f_beta"  # loss | recall | cost | f_beta
 TVERSKY_SMOOTH = 1e-6
 
 

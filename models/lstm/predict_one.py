@@ -4,9 +4,9 @@
 Run from repo root:
 
     python models/lstm/predict_one.py \
-      --clip-path data/test/AWDaW5Sfu7I/AWDaW5Sfu7I_001.mp4 \
-      --checkpoint models/lstm/checkpoints/.../best.pt \
-      --output-csv models/lstm/predictions/AWDaW5Sfu7I_001_predictions.csv \
+      --clip-path data/test/NSsm4av7AF8/$CLIP.mp4 \
+      --checkpoint models/lstm/checkpoints/2026-05-27-14:47-cnn-lstm-3sec-context/best.pt \
+      --output-csv models/lstm/predictions/2026-05-27-14:47-cnn-lstm-3sec-context/"$CLIP"_predictions.csv \
       --device mps
 """
 
