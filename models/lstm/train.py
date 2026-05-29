@@ -517,6 +517,8 @@ def train(
     boundary_margin: int | None = None,
     train_frame_stride: int | None = None,
     early_stop_patience: int | None = None,
+    train_clip_ids: list[str] | None = None,
+    val_clip_ids: list[str] | None = None,
     quiet: bool = False,
     skip_final_eval: bool = False,
 ) -> dict[str, Any]:
@@ -558,13 +560,35 @@ def train(
         )
 
     labels_by_clip = load_labels_by_clip(FRAME_LABELS_CSV)
-    train_ids, test_ids = load_train_test_clip_ids(
-        train_csv=TRAIN_CLIPS_CSV,
-        test_csv=TEST_CLIPS_CSV,
-        labeled_clip_ids=list_clip_ids(FRAME_LABELS_CSV),
-    )
-    print(f"train clips: {len(train_ids)} ({TRAIN_CLIPS_CSV})")
-    print(f"test clips:  {len(test_ids)} ({TEST_CLIPS_CSV})")
+    if train_clip_ids is not None or val_clip_ids is not None:
+        if train_clip_ids is None or val_clip_ids is None:
+            raise ValueError("train_clip_ids and val_clip_ids must both be set or both omitted")
+        train_ids = sorted(train_clip_ids)
+        test_ids = sorted(val_clip_ids)
+        labeled = set(list_clip_ids(FRAME_LABELS_CSV))
+        missing = (set(train_ids) | set(test_ids)) - labeled
+        if missing:
+            bad = sorted(missing)[:5]
+            raise RuntimeError(
+                "clip ids missing from frame labels: "
+                + ", ".join(bad)
+                + (" ..." if len(missing) > 5 else "")
+            )
+        overlap = set(train_ids) & set(test_ids)
+        if overlap:
+            raise RuntimeError(
+                "train and val clip lists overlap: " + ", ".join(sorted(overlap)[:5])
+            )
+        split_source = "explicit clip lists"
+    else:
+        train_ids, test_ids = load_train_test_clip_ids(
+            train_csv=TRAIN_CLIPS_CSV,
+            test_csv=TEST_CLIPS_CSV,
+            labeled_clip_ids=list_clip_ids(FRAME_LABELS_CSV),
+        )
+        split_source = f"{TRAIN_CLIPS_CSV} / {TEST_CLIPS_CSV}"
+    print(f"train clips: {len(train_ids)} ({split_source})")
+    print(f"val clips:   {len(test_ids)} ({split_source})")
 
     train_ds = FeatureWindowDataset(
         train_ids,
@@ -639,6 +663,7 @@ def train(
         "features_root": str(FEATURES_ROOT.relative_to(REPO_ROOT)),
         "frame_labels_csv": str(FRAME_LABELS_CSV.relative_to(REPO_ROOT)),
         "train_clip_ids": train_ids,
+        "val_clip_ids": test_ids,
         "test_clip_ids": test_ids,
         "train_clips_csv": _path_for_config(TRAIN_CLIPS_CSV),
         "test_clips_csv": _path_for_config(TEST_CLIPS_CSV),
