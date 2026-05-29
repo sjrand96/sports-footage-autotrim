@@ -10,6 +10,12 @@ FEATURE_COLUMNS_BASE: list[str] = [
     "n_opposite_side",
     "median_nearest_neighbor_dist",
     "hands_above_head_count",
+    "knee_angle_mean_deg",
+    "knee_angle_min_deg",
+    "squat_count",
+    "squat_ratio",
+    "wrists_above_shoulder_count",
+    "high_five_pair_count",
 ]
 
 _CHUNK1_SPATIAL: list[str] = [
@@ -43,7 +49,36 @@ _CHUNK1_SPATIAL: list[str] = [
     "opposite_side_mocon_max_m",
 ]
 
-FEATURE_COLUMNS: list[str] = list(FEATURE_COLUMNS_BASE) + list(_CHUNK1_SPATIAL)
+_FLOW_AND_MOTION: list[str] = [
+    "flow_mag_mean",
+    "flow_mag_std",
+    "flow_mag_p90",
+    "flow_mag_p95",
+    "camera_side_centroid_speed_m",
+    "opposite_side_centroid_speed_m",
+    "inter_centroid_speed_m",
+]
+
+NEW_FEATURE_COLUMNS: list[str] = [
+    "knee_angle_mean_deg",
+    "knee_angle_min_deg",
+    "squat_count",
+    "squat_ratio",
+    "wrists_above_shoulder_count",
+    "high_five_pair_count",
+    "flow_mag_mean",
+    "flow_mag_std",
+    "flow_mag_p90",
+    "flow_mag_p95",
+    "camera_side_centroid_speed_m",
+    "opposite_side_centroid_speed_m",
+    "inter_centroid_speed_m",
+]
+
+FEATURE_COLUMNS_CHUNK1_SPATIAL: list[str] = list(_CHUNK1_SPATIAL)
+FEATURE_COLUMNS_FLOW_MOTION: list[str] = list(_FLOW_AND_MOTION)
+
+FEATURE_COLUMNS: list[str] = list(FEATURE_COLUMNS_BASE) + list(_CHUNK1_SPATIAL) + list(_FLOW_AND_MOTION)
 
 PROVENANCE_COLUMNS: list[str] = [
     "source_id",
@@ -67,6 +102,9 @@ INTEGER_FEATURE_COLUMNS: frozenset[str] = frozenset(
         "n_opposite_side",
         "hands_above_head_count",
         "n_pose_instances_raw",
+        "squat_count",
+        "wrists_above_shoulder_count",
+        "high_five_pair_count",
     }
 )
 
