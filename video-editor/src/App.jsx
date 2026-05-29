@@ -138,6 +138,7 @@ export default function App() {
     setGroundTruthIntervals([])
     setShowGroundTruth(false)
     setSmoothIntervals(true)
+    setPlaySelectedOnly(false)
     setPredictLabelsImportName('')
     setEditorLabelsImportName('')
     setGroundTruthLabelsImportName('')
@@ -484,6 +485,7 @@ export default function App() {
                   ref={videoRef}
                   className="video"
                   src={sourceUrl}
+                  controls
                   playsInline
                   draggable={false}
                   onTimeUpdate={onTimeUpdate}
@@ -624,14 +626,25 @@ export default function App() {
 
                 <div className="playback-block">
                   {isEditor ? (
-                    <label className="playback-selected-toggle">
-                      <input
-                        type="checkbox"
-                        checked={smoothIntervals}
-                        onChange={(e) => onSmoothIntervalsChange(e.target.checked)}
-                      />
-                      Smooth segment boundaries
-                    </label>
+                    <div className="playback-toggles">
+                      <label className="playback-selected-toggle">
+                        <input
+                          type="checkbox"
+                          checked={smoothIntervals}
+                          onChange={(e) => onSmoothIntervalsChange(e.target.checked)}
+                        />
+                        Smooth segment boundaries
+                      </label>
+                      <label className="playback-selected-toggle">
+                        <input
+                          type="checkbox"
+                          checked={playSelectedOnly}
+                          onChange={(e) => setPlaySelectedOnly(e.target.checked)}
+                          disabled={editorIntervals.length === 0}
+                        />
+                        Play selected segments only
+                      </label>
+                    </div>
                   ) : null}
                   <PlaybackTimeline
                     mode={appMode}
