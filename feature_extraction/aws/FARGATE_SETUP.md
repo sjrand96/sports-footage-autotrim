@@ -151,6 +151,10 @@ Wait until task **Stopped** with exit code 0.
 aws s3 cp s3://sports-footage-autotrim-bucket/feature_extraction/fargate_smoke_60f/timings.json -
 ```
 
+Parquet outputs now land under:
+
+`s3://sports-footage-autotrim-bucket/feature_extraction/<run_id>/parquet/`
+
 ---
 
 ## Step 8 — Full clip benchmark

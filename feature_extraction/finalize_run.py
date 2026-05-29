@@ -65,7 +65,7 @@ def run_report_from_clip_entries(
                     split=split,
                     n_rows=int(entry.get("n_rows", 0)),
                     output_path="",
-                    output_s3_uri=f"s3://{bucket}/{parquet_key(run_id, split, stem)}",
+                    output_s3_uri=f"s3://{bucket}/{parquet_key(run_id, stem)}",
                     timings_sec=entry.get("timings_sec"),
                     derived=entry.get("derived"),
                     source_fps=entry.get("source_fps"),
@@ -114,7 +114,7 @@ def run_report_from_plan_and_tasks(
                     split=split,
                     n_rows=int(task.get("n_rows") or 0),
                     output_path="",
-                    output_s3_uri=f"s3://{bucket}/{parquet_key(run_id, split, stem)}",
+                    output_s3_uri=f"s3://{bucket}/{parquet_key(run_id, stem)}",
                 )
             )
         else:

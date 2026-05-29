@@ -23,8 +23,8 @@ def feature_extraction_prefix(run_id: str) -> str:
     return f"{FEATURE_EXTRACTION_ROOT}/{run_id}"
 
 
-def parquet_key(run_id: str, split: str, stem: str) -> str:
-    return f"{feature_extraction_prefix(run_id)}/{split}/{stem}.parquet"
+def parquet_key(run_id: str, stem: str) -> str:
+    return f"{feature_extraction_prefix(run_id)}/parquet/{stem}.parquet"
 
 
 def manifest_key(run_id: str) -> str:
@@ -59,8 +59,8 @@ def local_run_dir(out_dir: Path, run_id: str) -> Path:
     return out_dir / run_id
 
 
-def local_parquet_path(out_dir: Path, run_id: str, split: str, stem: str) -> Path:
-    return local_run_dir(out_dir, run_id) / split / f"{stem}.parquet"
+def local_parquet_path(out_dir: Path, run_id: str, stem: str) -> Path:
+    return local_run_dir(out_dir, run_id) / "parquet" / f"{stem}.parquet"
 
 
 def local_manifest_path(out_dir: Path, run_id: str) -> Path:

@@ -126,7 +126,7 @@ def process_one_clip(
     delete_local_clip_after: bool = False,
 ) -> ClipSuccess:
     stem = clip_stem(spec.source_id, spec.clip_index)
-    out_path = local_parquet_path(out_dir, run_id, split, stem)
+    out_path = local_parquet_path(out_dir, run_id, stem)
     local_video = local_clip_path(spec.source_id, spec.clip_index)
     timer = ClipTimer()
     t_clip = perf_counter()
@@ -335,7 +335,7 @@ def finalize_run_artifacts(
     parquet_upload: RunUploadResult | None = None
     upload_sec: float | None = None
 
-    if upload_s3 and (run_report.n_success > 0 or any((run_path / s).glob("*.parquet") for s in ("train", "test"))):
+    if upload_s3 and (run_report.n_success > 0 or any((run_path / "parquet").glob("*.parquet"))):
         t_upload = perf_counter()
         parquet_upload = upload_run_directory(
             run_path,
@@ -465,7 +465,7 @@ def parse_args() -> argparse.Namespace:
         "--split-eval-group",
         choices=("test", "shift"),
         default="test",
-        help="Source group from --split-manifest to write as test/ parquets.",
+        help="Source group from --split-manifest to tag as eval split metadata.",
     )
     p.add_argument("--label-fps", type=float, default=DEFAULT_LABEL_FPS)
     p.add_argument("--region", type=str, default=DEFAULT_REGION)
@@ -503,7 +503,7 @@ def parse_args() -> argparse.Namespace:
         "--force-split",
         choices=("train", "test"),
         default=None,
-        help="Force train/test partition (parallel workers; one clip per task).",
+        help="Set split metadata hint (parallel workers; one clip per task).",
     )
     p.add_argument(
         "--upload-parquet-only",
@@ -560,7 +560,7 @@ def main() -> int:
         existing_manifest = _load_json(local_manifest_path(out_dir, run_id))
         split_meta = _split_meta_from_manifest(existing_manifest)
         run_report = _run_report_from_json(_load_json(local_run_report_path(out_dir, run_id)))
-        if not run_report.successes and not (run_path / "train").exists() and not (run_path / "test").exists():
+        if not run_report.successes and not (run_path / "parquet").exists():
             logger.error("upload-only: no parquets or run_report under %s", run_id)
             return 1
         specs_by_stem = _specs_by_stem_from_successes(run_report)
@@ -601,7 +601,9 @@ def main() -> int:
 
     if args.force_split:
         if len(specs) != 1:
-            logger.error("--force-split requires exactly one --clip-id per task (use run_fanout.py for many clips)")
+            logger.error(
+                "--force-split requires exactly one --clip-id per task (use run_fanout.py for many clips)"
+            )
             return 1
         forced: SplitName = args.force_split  # type: ignore[assignment]
         split_by_id = {specs[0].clip_id: forced}

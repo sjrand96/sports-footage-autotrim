@@ -1,6 +1,6 @@
 # Feature extraction
 
-Per-frame pose + homography features → parquets under `{out_dir}/{run_id}/train|test/`.
+Per-frame pose + homography features → parquets under `{out_dir}/{run_id}/parquet/`.
 
 See [PLAN.md](PLAN.md) for architecture. AWS deploy: **[CLOUD_DEPLOY.md](CLOUD_DEPLOY.md)**. W&B tracking: **[WANDB.md](WANDB.md)**. Train/test assignment: **`clip_split.py`**.
 
@@ -29,7 +29,7 @@ Each run writes **`timings.json`** (local + S3) with per-clip stage seconds (`do
 
 ## S3 upload (phase 2)
 
-Uploads to `s3://{bucket}/feature_extraction/{run_id}/` with `train/`, `test/`, `manifest.json`, `run_report.json`, `timings.json`.
+Uploads to `s3://{bucket}/feature_extraction/{run_id}/` with `parquet/`, `manifest.json`, `run_report.json`, `timings.json`.
 Legacy flat files under `feature_extractions/` are unchanged.
 
 ```bash
@@ -87,7 +87,8 @@ grep frames_upload "feature_extraction/_runs/$RUN_ID/timings.json"
 
 ## Tabular XGBoost (phase 3)
 
-Train on the extract-time split (`train/` + `test/` parquets; `is_playing` is already in each row):
+Train on run parquets (`parquet/*.parquet`; `is_playing` is already in each row). By default
+`train.py` reads split metadata from the run manifest; pass `--split-json` to override.
 
 ```bash
 .venv/bin/python models/tabular_xgb/train.py \
@@ -97,7 +98,8 @@ Train on the extract-time split (`train/` + `test/` parquets; `is_playing` is al
 # See models/tabular_xgb/README.md
 ```
 
-Requires at least one parquet in **both** `train/` and `test/` (use a multi-clip run or adjust `clip_split.py`).
+Requires at least one parquet under `parquet/` and a valid train/test split assignment
+(from manifest metadata or `--split-json`).
 
 ## Container (Step 1 — local Docker)
 

@@ -62,7 +62,7 @@ docker run --rm --env-file .env fe-worker \
 
 Do **not** pass `--write-frames` for throughput benchmarks (doubles wall time). Do **not** use `--skip-download` in cloud (no pre-staged media).
 
-**Pass criteria:** exit 0; S3 has `feature_extraction/{run_id}/timings.json` and one parquet under `train/` or `test/`.
+**Pass criteria:** exit 0; S3 has `feature_extraction/{run_id}/timings.json` and one parquet under `parquet/`.
 
 ---
 
@@ -96,7 +96,7 @@ Driver (laptop) plans split once, starts N Fargate workers, merges per-clip timi
 # 1. Re-push amd64 image after code changes
 ./feature_extraction/aws/push-image.sh
 
-# 2. Plan only (lists clips + train/test)
+# 2. Plan only (lists clips + split metadata)
 .venv/bin/python feature_extraction/aws/run_fanout.py --plan-only --max-clips 5 --run-id my_parallel_run
 
 # 3. Start workers + wait + finalize (uploads merged manifest/timings to S3)
@@ -125,7 +125,7 @@ Worker flags (also usable in manual `run-task`):
 
 | Flag | Purpose |
 |------|---------|
-| `--force-split train\|test` | Split from driver plan (one clip per task) |
+| `--force-split train\|test` | Split hint metadata from driver plan (one clip per task) |
 | `--upload-parquet-only` | Do not overwrite run-level manifest/timings on S3 |
 | `--delete-local-clip-after` | Delete MP4 after extract (bounded ephemeral disk) |
 

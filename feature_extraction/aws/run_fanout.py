@@ -193,7 +193,7 @@ def _parquet_on_s3(
     clip: dict[str, Any],
 ) -> bool:
     stem = clip_stem(str(clip["source_id"]), int(clip["clip_index"]))
-    key = parquet_key(run_id, str(clip["split"]), stem)
+    key = parquet_key(run_id, stem)
     try:
         s3.head_object(Bucket=bucket, Key=key)
         return True
@@ -483,7 +483,7 @@ def parse_args() -> argparse.Namespace:
         "--split-eval-group",
         choices=("test", "shift"),
         default="test",
-        help="Source group from --split-manifest to write as test/ parquets.",
+        help="Source group from --split-manifest to tag as eval split metadata.",
     )
     p.add_argument("--label-fps", type=float, default=30.0)
     p.add_argument("--max-frames", type=int, default=None)

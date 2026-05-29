@@ -1,10 +1,10 @@
 # Tabular XGBoost
 
-Trains on **`feature_extraction/{run_id}/train/`**, evaluates on **`test/`** (split fixed at extract time). Labels are **`is_playing`** in the feature parquets.
+Trains from **`feature_extraction/{run_id}/parquet/`**. By default, train/test assignment comes from run manifest metadata (`train_clip_ids`, `test_clip_ids`); pass `--split-json` to override with explicit clip IDs/keys (for K-fold/custom splits). Labels are **`is_playing`** in the feature parquets.
 
 ## Design
 
-**Two splits only (train / test clips).** We do not hold out a third val folder. Threshold tuning uses **grouped CV on train clips** (`StratifiedGroupKFold` by `clip_key`), so test stays untouched.
+**Two-way eval contract per invocation (train / test clips).** We do not hold out a third val folder. Threshold tuning uses **grouped CV on train clips** (`StratifiedGroupKFold` by `clip_key`), so test stays untouched.
 
 **Primary metric: Fβ (default β=2).** β=2 weights recall 4× more than precision—aligned with preferring false negatives (missed “playing”) over false positives.
 
@@ -49,6 +49,7 @@ One concatenated file for all held-out test frames (for eval viz):
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--f-beta` | `2` | Fβ for OOF threshold search and primary test metric |
+| `--split-json` | — | Optional explicit split file (`train/test` clip IDs or clip keys) |
 | `--tune-threshold` / `--no-tune-threshold` | on | Grouped CV threshold tune on train clips |
 | `--cv-folds` | `5` | Folds (capped by number of train clips) |
 | `--decision-threshold` | — | Fixed threshold; skips CV |
@@ -68,7 +69,7 @@ With `--no-tune-threshold`, threshold **0.5** is used. Reports include both tune
   --save-model feature_extraction/_runs/mini_fullfps_1clip/xgb_model.json
 ```
 
-Requires both `train/` and `test/` to contain at least one parquet each (sync from S3 or run locally).
+Requires at least one parquet in `parquet/` and a valid split assignment (manifest metadata or `--split-json`).
 
 ## FPS sensitivity (`fps_sensitivity.py`)
 

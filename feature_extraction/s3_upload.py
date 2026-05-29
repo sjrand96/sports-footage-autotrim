@@ -110,12 +110,10 @@ def collect_run_files(
     files: list[tuple[Path, str]] = []
 
     if phase in ("parquets", "all"):
-        for split in ("train", "test"):
-            split_dir = run_dir / split
-            if not split_dir.is_dir():
-                continue
-            for parquet in sorted(split_dir.glob("*.parquet")):
-                files.append((parquet, parquet_key(run_id, split, parquet.stem)))
+        parquet_dir = run_dir / "parquet"
+        if parquet_dir.is_dir():
+            for parquet in sorted(parquet_dir.glob("*.parquet")):
+                files.append((parquet, parquet_key(run_id, parquet.stem)))
 
     if phase in ("sidecars", "all"):
         for name, key_fn in (
@@ -172,12 +170,11 @@ def parquet_s3_uri_for_success(
     *,
     bucket: str,
     run_id: str,
-    split: str,
     source_id: str,
     clip_index: int,
 ) -> str:
     stem = f"{source_id}_{clip_index:03d}"
-    return s3_uri(bucket, parquet_key(run_id, split, stem))
+    return s3_uri(bucket, parquet_key(run_id, stem))
 
 
 def apply_upload_to_successes(

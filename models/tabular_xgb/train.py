@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train pooled XGBoost from a feature-extraction run (train/ + test/ parquets)."""
+"""Train pooled XGBoost from a feature-extraction run (single parquet/ folder)."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ _DEFAULT_RUNS_ROOT = REPO_ROOT / "feature_extraction" / "_runs"
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Train XGBoost on feature_extraction/{run_id}/train, evaluate on test/."
+        description="Train XGBoost on feature_extraction/{run_id}/parquet with split metadata."
     )
     p.add_argument(
         "--run-dir",
@@ -63,6 +63,15 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Run id under --runs-root (alternative to --run-dir).",
+    )
+    p.add_argument(
+        "--split-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional explicit split JSON. Supports train/test clip IDs or clip keys via "
+            "{train_clip_ids,test_clip_ids} or {train_clip_keys,test_clip_keys}."
+        ),
     )
     p.add_argument("--n-estimators", type=int, default=400)
     p.add_argument("--max-depth", type=int, default=5)
@@ -169,31 +178,93 @@ def _clip_key_frame(source_id: str, clip_index: int) -> str:
     return f"{source_id}_{int(clip_index):03d}"
 
 
-def _load_split_parquets(split_dir: Path, *, split_name: str, feature_columns: list[str]) -> pd.DataFrame:
-    if not split_dir.is_dir():
-        raise RuntimeError(f"missing split directory: {split_dir}")
+def _load_all_parquets(run_dir: Path, *, feature_columns: list[str]) -> pd.DataFrame:
+    parquet_dir = run_dir / "parquet"
+    if not parquet_dir.is_dir():
+        raise RuntimeError(f"missing parquet directory: {parquet_dir}")
 
-    files = sorted(split_dir.glob("*.parquet"))
+    files = sorted(parquet_dir.glob("*.parquet"))
     if not files:
-        raise RuntimeError(f"no parquets in {split_dir}")
+        raise RuntimeError(f"no parquets in {parquet_dir}")
 
     chunks: list[pd.DataFrame] = []
+    required = feature_columns + ["is_playing", "source_id", "clip_index", "frame_idx", "clip_id"]
     for path in files:
         df = pd.read_parquet(path)
-        missing = [c for c in feature_columns + ["is_playing", "source_id", "clip_index", "frame_idx"] if c not in df.columns]
+        missing = [c for c in required if c not in df.columns]
         if missing:
             raise RuntimeError(f"{path.name} missing columns: {missing}")
         df = df.copy()
-        df["split"] = split_name
         df["clip_key"] = _clip_key_frame(str(df["source_id"].iloc[0]), int(df["clip_index"].iloc[0]))
         chunks.append(df)
     return pd.concat(chunks, ignore_index=True)
 
 
-def load_train_test_frames(run_dir: Path, feature_columns: list[str]) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+def _split_sets_from_manifest(manifest: dict[str, Any]) -> tuple[set[int], set[int]]:
+    train_ids = {int(v) for v in (manifest.get("train_clip_ids") or [])}
+    test_ids = {int(v) for v in (manifest.get("test_clip_ids") or [])}
+    if train_ids or test_ids:
+        return train_ids, test_ids
+
+    # Fallback for manifests where split IDs are only present in run_report successes.
+    successes = (((manifest.get("run_report") or {}).get("successes")) or [])
+    for row in successes:
+        split = str(row.get("split") or "")
+        clip_id = row.get("clip_id")
+        if clip_id is None:
+            continue
+        if split == "train":
+            train_ids.add(int(clip_id))
+        elif split == "test":
+            test_ids.add(int(clip_id))
+    return train_ids, test_ids
+
+
+def _split_sets_from_json(path: Path) -> tuple[set[int], set[int], set[str], set[str]]:
+    data = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    train_ids = {int(v) for v in (data.get("train_clip_ids") or [])}
+    test_ids = {int(v) for v in (data.get("test_clip_ids") or [])}
+    train_keys = {str(v) for v in (data.get("train_clip_keys") or [])}
+    test_keys = {str(v) for v in (data.get("test_clip_keys") or [])}
+    if not (train_ids or test_ids or train_keys or test_keys):
+        raise RuntimeError(f"split JSON has no train/test IDs or keys: {path}")
+    return train_ids, test_ids, train_keys, test_keys
+
+
+def load_train_test_frames(
+    run_dir: Path,
+    feature_columns: list[str],
+    *,
+    split_json: Path | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    train_df = _load_split_parquets(run_dir / "train", split_name="train", feature_columns=feature_columns)
-    test_df = _load_split_parquets(run_dir / "test", split_name="test", feature_columns=feature_columns)
+    all_df = _load_all_parquets(run_dir, feature_columns=feature_columns)
+
+    if split_json is not None:
+        train_ids, test_ids, train_keys, test_keys = _split_sets_from_json(split_json)
+        train_mask = all_df["clip_id"].astype(int).isin(train_ids) | all_df["clip_key"].astype(str).isin(train_keys)
+        test_mask = all_df["clip_id"].astype(int).isin(test_ids) | all_df["clip_key"].astype(str).isin(test_keys)
+    else:
+        train_ids, test_ids = _split_sets_from_manifest(manifest)
+        if not train_ids or not test_ids:
+            raise RuntimeError(
+                "manifest does not contain train/test clip IDs. Pass --split-json with explicit split assignment."
+            )
+        train_mask = all_df["clip_id"].astype(int).isin(train_ids)
+        test_mask = all_df["clip_id"].astype(int).isin(test_ids)
+
+    overlap = train_mask & test_mask
+    if overlap.any():
+        overlap_keys = sorted(all_df.loc[overlap, "clip_key"].astype(str).unique().tolist())
+        raise RuntimeError(f"split assignment overlap for clips: {overlap_keys}")
+
+    train_df = all_df.loc[train_mask].copy()
+    test_df = all_df.loc[test_mask].copy()
+    if train_df.empty or test_df.empty:
+        raise RuntimeError(
+            f"empty split after assignment (train_rows={len(train_df)}, test_rows={len(test_df)}). "
+            "Check split metadata or --split-json."
+        )
     return train_df, test_df, manifest
 
 
@@ -441,7 +512,11 @@ def main() -> int:
     run_dir = resolve_run_dir(args)
     feature_columns = active_feature_columns(args.feature_subset)
 
-    train_df, test_df, manifest = load_train_test_frames(run_dir, feature_columns)
+    train_df, test_df, manifest = load_train_test_frames(
+        run_dir,
+        feature_columns,
+        split_json=args.split_json,
+    )
     if train_df.empty or test_df.empty:
         raise SystemExit("train or test split is empty; need parquets in both train/ and test/")
 

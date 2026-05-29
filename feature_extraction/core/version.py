@@ -3,4 +3,4 @@
 from __future__ import annotations
 
 EXTRACTOR_VERSION = "0.1.0"
-FEATURE_SCHEMA_VERSION = "1"
+FEATURE_SCHEMA_VERSION = "2"
