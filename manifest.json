@@ -1,0 +1,3166 @@
+{
+  "run_id": "full_127_limitedconcurr_20260518",
+  "created_at": "2026-05-19T00:32:44.642810+00:00",
+  "extractor_version": "0.1.0",
+  "feature_schema_version": "1",
+  "feature_columns": [
+    "n_players_total",
+    "n_front_row",
+    "n_back_row",
+    "n_camera_side",
+    "n_opposite_side",
+    "median_nearest_neighbor_dist",
+    "hands_above_head_count",
+    "n_pose_instances_raw",
+    "camera_side_pairwise_mean_m",
+    "camera_side_pairwise_std_m",
+    "camera_side_pairwise_min_m",
+    "camera_side_pairwise_max_m",
+    "opposite_side_pairwise_mean_m",
+    "opposite_side_pairwise_std_m",
+    "opposite_side_pairwise_min_m",
+    "opposite_side_pairwise_max_m",
+    "camera_side_net_dist_mean_m",
+    "camera_side_net_dist_std_m",
+    "camera_side_net_dist_min_m",
+    "camera_side_net_dist_max_m",
+    "opposite_side_net_dist_mean_m",
+    "opposite_side_net_dist_std_m",
+    "opposite_side_net_dist_min_m",
+    "opposite_side_net_dist_max_m",
+    "camera_side_centroid_wx_m",
+    "camera_side_centroid_wy_m",
+    "opposite_side_centroid_wx_m",
+    "opposite_side_centroid_wy_m",
+    "inter_centroid_dist_m",
+    "camera_side_mocon_mean_m",
+    "camera_side_mocon_std_m",
+    "camera_side_mocon_max_m",
+    "opposite_side_mocon_mean_m",
+    "opposite_side_mocon_std_m",
+    "opposite_side_mocon_max_m"
+  ],
+  "parquet_columns": [
+    "source_id",
+    "clip_index",
+    "clip_id",
+    "clip_s3_uri",
+    "clip_local_path",
+    "frame_idx",
+    "timestamp_sec",
+    "is_playing",
+    "n_players_total",
+    "n_front_row",
+    "n_back_row",
+    "n_camera_side",
+    "n_opposite_side",
+    "median_nearest_neighbor_dist",
+    "hands_above_head_count",
+    "n_pose_instances_raw",
+    "camera_side_pairwise_mean_m",
+    "camera_side_pairwise_std_m",
+    "camera_side_pairwise_min_m",
+    "camera_side_pairwise_max_m",
+    "opposite_side_pairwise_mean_m",
+    "opposite_side_pairwise_std_m",
+    "opposite_side_pairwise_min_m",
+    "opposite_side_pairwise_max_m",
+    "camera_side_net_dist_mean_m",
+    "camera_side_net_dist_std_m",
+    "camera_side_net_dist_min_m",
+    "camera_side_net_dist_max_m",
+    "opposite_side_net_dist_mean_m",
+    "opposite_side_net_dist_std_m",
+    "opposite_side_net_dist_min_m",
+    "opposite_side_net_dist_max_m",
+    "camera_side_centroid_wx_m",
+    "camera_side_centroid_wy_m",
+    "opposite_side_centroid_wx_m",
+    "opposite_side_centroid_wy_m",
+    "inter_centroid_dist_m",
+    "camera_side_mocon_mean_m",
+    "camera_side_mocon_std_m",
+    "camera_side_mocon_max_m",
+    "opposite_side_mocon_mean_m",
+    "opposite_side_mocon_std_m",
+    "opposite_side_mocon_max_m"
+  ],
+  "sample_policy": "full_source_fps",
+  "label_fps": 30.0,
+  "output_local_dir": "/Users/spencer/Documents/Repos/sports-footage-autotrim/feature_extraction/_runs/full_127_limitedconcurr_20260518",
+  "git_sha": null,
+  "split_method": "random_placeholder",
+  "split_seed": 42,
+  "test_fraction": 0.2,
+  "train_clip_ids": [
+    148,
+    71,
+    65,
+    53,
+    142,
+    111,
+    34,
+    164,
+    137,
+    30,
+    163,
+    124,
+    136,
+    119,
+    155,
+    165,
+    123,
+    46,
+    126,
+    35,
+    40,
+    160,
+    127,
+    146,
+    107,
+    156,
+    174,
+    108,
+    32,
+    125,
+    41,
+    56,
+    171,
+    70,
+    159,
+    62,
+    152,
+    169,
+    33,
+    42,
+    29,
+    72,
+    109,
+    131,
+    122,
+    74,
+    144,
+    79,
+    172,
+    162,
+    69,
+    118,
+    129,
+    130,
+    76,
+    133,
+    44,
+    54,
+    151,
+    43,
+    104,
+    36,
+    128,
+    47,
+    105,
+    64,
+    59,
+    48,
+    161,
+    57,
+    157,
+    50,
+    153,
+    147,
+    28,
+    110,
+    135,
+    45,
+    141,
+    168,
+    114,
+    112,
+    49,
+    61,
+    68,
+    158,
+    139,
+    75,
+    173,
+    51,
+    55,
+    150,
+    77,
+    60,
+    81,
+    113,
+    116,
+    120,
+    31,
+    67,
+    78,
+    145
+  ],
+  "test_clip_ids": [
+    73,
+    27,
+    37,
+    140,
+    134,
+    80,
+    166,
+    38,
+    39,
+    63,
+    132,
+    106,
+    115,
+    149,
+    117,
+    154,
+    167,
+    58,
+    52,
+    103,
+    138,
+    66,
+    170,
+    143,
+    121
+  ],
+  "run_report": {
+    "status": "ok",
+    "n_success": 127,
+    "n_failed": 0,
+    "failures": [],
+    "successes": [
+      {
+        "clip_id": 103,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 1,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/2crSZaHIBaY_001.parquet",
+        "timings_sec": {
+          "download": 1.8161,
+          "calibration": 0.0281,
+          "extract": 1113.0505,
+          "labels": 0.0717,
+          "parquet_write": 0.0194,
+          "clip_total": 1114.9891
+        },
+        "derived": {
+          "sec_per_frame": 0.618361,
+          "rows_per_sec": 1.6172
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 104,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 2,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_002.parquet",
+        "timings_sec": {
+          "download": 1.1819,
+          "calibration": 0.0257,
+          "extract": 1091.2583,
+          "labels": 0.0785,
+          "parquet_write": 0.0176,
+          "clip_total": 1092.5653
+        },
+        "derived": {
+          "sec_per_frame": 0.606255,
+          "rows_per_sec": 1.6495
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 105,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 3,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_003.parquet",
+        "timings_sec": {
+          "download": 1.2689,
+          "calibration": 0.0271,
+          "extract": 1110.8966,
+          "labels": 0.0773,
+          "parquet_write": 0.0185,
+          "clip_total": 1112.2917
+        },
+        "derived": {
+          "sec_per_frame": 0.617165,
+          "rows_per_sec": 1.6203
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 106,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 4,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/2crSZaHIBaY_004.parquet",
+        "timings_sec": {
+          "download": 1.0197,
+          "calibration": 0.0272,
+          "extract": 717.8755,
+          "labels": 0.0723,
+          "parquet_write": 0.0124,
+          "clip_total": 719.0091
+        },
+        "derived": {
+          "sec_per_frame": 0.39882,
+          "rows_per_sec": 2.5074
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 107,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_005.parquet",
+        "timings_sec": {
+          "download": 1.1771,
+          "calibration": 0.0318,
+          "extract": 1016.1538,
+          "labels": 0.1108,
+          "parquet_write": 0.0177,
+          "clip_total": 1017.4945
+        },
+        "derived": {
+          "sec_per_frame": 0.56453,
+          "rows_per_sec": 1.7714
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 108,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 6,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_006.parquet",
+        "timings_sec": {
+          "download": 1.3902,
+          "calibration": 0.0288,
+          "extract": 1126.1743,
+          "labels": 0.0778,
+          "parquet_write": 0.0202,
+          "clip_total": 1127.6946
+        },
+        "derived": {
+          "sec_per_frame": 0.625652,
+          "rows_per_sec": 1.5983
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 109,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_007.parquet",
+        "timings_sec": {
+          "download": 1.3289,
+          "calibration": 0.0242,
+          "extract": 811.9064,
+          "labels": 0.0773,
+          "parquet_write": 0.0119,
+          "clip_total": 813.3507
+        },
+        "derived": {
+          "sec_per_frame": 0.451059,
+          "rows_per_sec": 2.217
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 110,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 8,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_008.parquet",
+        "timings_sec": {
+          "download": 1.9223,
+          "calibration": 0.0286,
+          "extract": 1086.847,
+          "labels": 0.0801,
+          "parquet_write": 0.0186,
+          "clip_total": 1088.8998
+        },
+        "derived": {
+          "sec_per_frame": 0.603804,
+          "rows_per_sec": 1.6562
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 111,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 9,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_009.parquet",
+        "timings_sec": {
+          "download": 1.562,
+          "calibration": 0.0236,
+          "extract": 1107.6062,
+          "labels": 0.0871,
+          "parquet_write": 0.0171,
+          "clip_total": 1109.2992
+        },
+        "derived": {
+          "sec_per_frame": 0.615337,
+          "rows_per_sec": 1.6251
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 112,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 10,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_010.parquet",
+        "timings_sec": {
+          "download": 1.1888,
+          "calibration": 0.029,
+          "extract": 1080.4062,
+          "labels": 0.0786,
+          "parquet_write": 0.0186,
+          "clip_total": 1081.7248
+        },
+        "derived": {
+          "sec_per_frame": 0.600226,
+          "rows_per_sec": 1.666
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 113,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 11,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_011.parquet",
+        "timings_sec": {
+          "download": 1.249,
+          "calibration": 0.0253,
+          "extract": 1090.2207,
+          "labels": 0.0753,
+          "parquet_write": 0.0196,
+          "clip_total": 1091.5934
+        },
+        "derived": {
+          "sec_per_frame": 0.605678,
+          "rows_per_sec": 1.651
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 114,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 12,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/2crSZaHIBaY_012.parquet",
+        "timings_sec": {
+          "download": 1.4316,
+          "calibration": 0.0254,
+          "extract": 1094.8615,
+          "labels": 0.0787,
+          "parquet_write": 0.0189,
+          "clip_total": 1096.4196
+        },
+        "derived": {
+          "sec_per_frame": 0.608256,
+          "rows_per_sec": 1.644
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 115,
+        "source_id": "2crSZaHIBaY",
+        "clip_index": 13,
+        "split": "test",
+        "n_rows": 1009,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/2crSZaHIBaY_013.parquet",
+        "timings_sec": {
+          "download": 0.8358,
+          "calibration": 0.0266,
+          "extract": 406.2781,
+          "labels": 0.242,
+          "parquet_write": 0.0115,
+          "clip_total": 407.396
+        },
+        "derived": {
+          "sec_per_frame": 0.402654,
+          "rows_per_sec": 2.4835
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1009
+      },
+      {
+        "clip_id": 116,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 1,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_001.parquet",
+        "timings_sec": {
+          "download": 1.296,
+          "calibration": 0.0285,
+          "extract": 1101.7368,
+          "labels": 0.2118,
+          "parquet_write": 0.0175,
+          "clip_total": 1103.2937
+        },
+        "derived": {
+          "sec_per_frame": 0.612076,
+          "rows_per_sec": 1.6338
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 117,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 2,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/6rRMEXuLAng_002.parquet",
+        "timings_sec": {
+          "download": 1.1366,
+          "calibration": 0.0255,
+          "extract": 1081.5564,
+          "labels": 0.0801,
+          "parquet_write": 0.0193,
+          "clip_total": 1082.8211
+        },
+        "derived": {
+          "sec_per_frame": 0.600865,
+          "rows_per_sec": 1.6643
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 118,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 3,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_003.parquet",
+        "timings_sec": {
+          "download": 1.2162,
+          "calibration": 0.0308,
+          "extract": 1116.1964,
+          "labels": 0.21,
+          "parquet_write": 0.0197,
+          "clip_total": 1117.6764
+        },
+        "derived": {
+          "sec_per_frame": 0.620109,
+          "rows_per_sec": 1.6126
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 119,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 4,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_004.parquet",
+        "timings_sec": {
+          "download": 1.5218,
+          "calibration": 0.057,
+          "extract": 1102.5703,
+          "labels": 0.079,
+          "parquet_write": 0.0177,
+          "clip_total": 1104.2491
+        },
+        "derived": {
+          "sec_per_frame": 0.612539,
+          "rows_per_sec": 1.6325
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 120,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_005.parquet",
+        "timings_sec": {
+          "download": 1.4114,
+          "calibration": 0.0251,
+          "extract": 1071.6303,
+          "labels": 0.1175,
+          "parquet_write": 0.0181,
+          "clip_total": 1073.2057
+        },
+        "derived": {
+          "sec_per_frame": 0.59535,
+          "rows_per_sec": 1.6797
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 121,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 6,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/6rRMEXuLAng_006.parquet",
+        "timings_sec": {
+          "download": 1.4044,
+          "calibration": 0.0279,
+          "extract": 1019.5679,
+          "labels": 0.0999,
+          "parquet_write": 0.0176,
+          "clip_total": 1021.1208
+        },
+        "derived": {
+          "sec_per_frame": 0.566427,
+          "rows_per_sec": 1.7655
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 122,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_007.parquet",
+        "timings_sec": {
+          "download": 1.3675,
+          "calibration": 0.0263,
+          "extract": 1125.3455,
+          "labels": 0.0739,
+          "parquet_write": 0.0201,
+          "clip_total": 1126.8366
+        },
+        "derived": {
+          "sec_per_frame": 0.625192,
+          "rows_per_sec": 1.5995
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 123,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 8,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_008.parquet",
+        "timings_sec": {
+          "download": 1.5261,
+          "calibration": 0.0255,
+          "extract": 1115.0301,
+          "labels": 0.1041,
+          "parquet_write": 0.0196,
+          "clip_total": 1116.7086
+        },
+        "derived": {
+          "sec_per_frame": 0.619461,
+          "rows_per_sec": 1.6143
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 124,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 9,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_009.parquet",
+        "timings_sec": {
+          "download": 1.2829,
+          "calibration": 0.0241,
+          "extract": 1095.0559,
+          "labels": 0.0779,
+          "parquet_write": 0.018,
+          "clip_total": 1096.4622
+        },
+        "derived": {
+          "sec_per_frame": 0.608364,
+          "rows_per_sec": 1.6438
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 125,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 10,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_010.parquet",
+        "timings_sec": {
+          "download": 1.3074,
+          "calibration": 0.0248,
+          "extract": 1086.7912,
+          "labels": 0.0794,
+          "parquet_write": 0.018,
+          "clip_total": 1088.2242
+        },
+        "derived": {
+          "sec_per_frame": 0.603773,
+          "rows_per_sec": 1.6563
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 126,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 11,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_011.parquet",
+        "timings_sec": {
+          "download": 1.2572,
+          "calibration": 0.0307,
+          "extract": 683.3634,
+          "labels": 0.2468,
+          "parquet_write": 0.0119,
+          "clip_total": 684.9118
+        },
+        "derived": {
+          "sec_per_frame": 0.379646,
+          "rows_per_sec": 2.634
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 127,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 12,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_012.parquet",
+        "timings_sec": {
+          "download": 1.1417,
+          "calibration": 0.0256,
+          "extract": 1114.1952,
+          "labels": 0.2081,
+          "parquet_write": 0.0204,
+          "clip_total": 1115.5945
+        },
+        "derived": {
+          "sec_per_frame": 0.618997,
+          "rows_per_sec": 1.6155
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 128,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 13,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_013.parquet",
+        "timings_sec": {
+          "download": 1.2663,
+          "calibration": 0.0299,
+          "extract": 859.2718,
+          "labels": 0.0931,
+          "parquet_write": 0.0131,
+          "clip_total": 860.6762
+        },
+        "derived": {
+          "sec_per_frame": 0.477373,
+          "rows_per_sec": 2.0948
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 129,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 14,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_014.parquet",
+        "timings_sec": {
+          "download": 1.4774,
+          "calibration": 0.0254,
+          "extract": 1056.1617,
+          "labels": 0.0989,
+          "parquet_write": 0.0199,
+          "clip_total": 1057.7869
+        },
+        "derived": {
+          "sec_per_frame": 0.586756,
+          "rows_per_sec": 1.7043
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 130,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 15,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_015.parquet",
+        "timings_sec": {
+          "download": 1.0234,
+          "calibration": 0.0257,
+          "extract": 1095.8666,
+          "labels": 0.0867,
+          "parquet_write": 0.02,
+          "clip_total": 1097.0258
+        },
+        "derived": {
+          "sec_per_frame": 0.608815,
+          "rows_per_sec": 1.6425
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 131,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 16,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_016.parquet",
+        "timings_sec": {
+          "download": 1.3212,
+          "calibration": 0.0288,
+          "extract": 1083.0172,
+          "labels": 0.0815,
+          "parquet_write": 0.0182,
+          "clip_total": 1084.4702
+        },
+        "derived": {
+          "sec_per_frame": 0.601676,
+          "rows_per_sec": 1.662
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 132,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 17,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/6rRMEXuLAng_017.parquet",
+        "timings_sec": {
+          "download": 1.4033,
+          "calibration": 0.0246,
+          "extract": 1138.9694,
+          "labels": 0.0935,
+          "parquet_write": 0.019,
+          "clip_total": 1140.5132
+        },
+        "derived": {
+          "sec_per_frame": 0.632761,
+          "rows_per_sec": 1.5804
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 133,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 18,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/6rRMEXuLAng_018.parquet",
+        "timings_sec": {
+          "download": 1.7596,
+          "calibration": 0.031,
+          "extract": 867.151,
+          "labels": 0.2076,
+          "parquet_write": 0.0135,
+          "clip_total": 869.1649
+        },
+        "derived": {
+          "sec_per_frame": 0.481751,
+          "rows_per_sec": 2.0758
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 134,
+        "source_id": "6rRMEXuLAng",
+        "clip_index": 19,
+        "split": "test",
+        "n_rows": 161,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/6rRMEXuLAng_019.parquet",
+        "timings_sec": {
+          "download": 0.5548,
+          "calibration": 0.0292,
+          "extract": 100.918,
+          "labels": 0.2362,
+          "parquet_write": 0.0174,
+          "clip_total": 101.7587
+        },
+        "derived": {
+          "sec_per_frame": 0.62682,
+          "rows_per_sec": 1.5954
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 161
+      },
+      {
+        "clip_id": 135,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 1,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_001.parquet",
+        "timings_sec": {
+          "download": 1.2406,
+          "calibration": 0.0249,
+          "extract": 872.665,
+          "labels": 0.0949,
+          "parquet_write": 0.0126,
+          "clip_total": 874.0399
+        },
+        "derived": {
+          "sec_per_frame": 0.484814,
+          "rows_per_sec": 2.0626
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 136,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 2,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_002.parquet",
+        "timings_sec": {
+          "download": 1.4613,
+          "calibration": 0.025,
+          "extract": 1102.4741,
+          "labels": 0.0814,
+          "parquet_write": 0.0173,
+          "clip_total": 1104.0624
+        },
+        "derived": {
+          "sec_per_frame": 0.612486,
+          "rows_per_sec": 1.6327
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 137,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 3,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_003.parquet",
+        "timings_sec": {
+          "download": 1.4297,
+          "calibration": 0.0352,
+          "extract": 1103.4944,
+          "labels": 0.0764,
+          "parquet_write": 0.0193,
+          "clip_total": 1105.0582
+        },
+        "derived": {
+          "sec_per_frame": 0.613052,
+          "rows_per_sec": 1.6312
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 138,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 4,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/GRuOSrz3kdY_004.parquet",
+        "timings_sec": {
+          "download": 1.4284,
+          "calibration": 0.0286,
+          "extract": 1081.5494,
+          "labels": 0.0793,
+          "parquet_write": 0.0195,
+          "clip_total": 1083.1085
+        },
+        "derived": {
+          "sec_per_frame": 0.600861,
+          "rows_per_sec": 1.6643
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 139,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_005.parquet",
+        "timings_sec": {
+          "download": 1.3277,
+          "calibration": 0.0245,
+          "extract": 1107.7661,
+          "labels": 0.0758,
+          "parquet_write": 0.0196,
+          "clip_total": 1109.2171
+        },
+        "derived": {
+          "sec_per_frame": 0.615426,
+          "rows_per_sec": 1.6249
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 140,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 6,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/GRuOSrz3kdY_006.parquet",
+        "timings_sec": {
+          "download": 1.434,
+          "calibration": 0.0255,
+          "extract": 1144.6314,
+          "labels": 0.0847,
+          "parquet_write": 0.0186,
+          "clip_total": 1146.1975
+        },
+        "derived": {
+          "sec_per_frame": 0.635906,
+          "rows_per_sec": 1.5726
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 141,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_007.parquet",
+        "timings_sec": {
+          "download": 1.5153,
+          "calibration": 0.0253,
+          "extract": 910.3401,
+          "labels": 0.0815,
+          "parquet_write": 0.0179,
+          "clip_total": 911.9831
+        },
+        "derived": {
+          "sec_per_frame": 0.505745,
+          "rows_per_sec": 1.9773
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 142,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 8,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_008.parquet",
+        "timings_sec": {
+          "download": 1.1947,
+          "calibration": 0.024,
+          "extract": 1100.7996,
+          "labels": 0.0814,
+          "parquet_write": 0.0186,
+          "clip_total": 1102.1217
+        },
+        "derived": {
+          "sec_per_frame": 0.611555,
+          "rows_per_sec": 1.6352
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 143,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 9,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/GRuOSrz3kdY_009.parquet",
+        "timings_sec": {
+          "download": 1.2299,
+          "calibration": 0.0259,
+          "extract": 1093.534,
+          "labels": 0.0748,
+          "parquet_write": 0.0174,
+          "clip_total": 1094.8852
+        },
+        "derived": {
+          "sec_per_frame": 0.607519,
+          "rows_per_sec": 1.646
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 144,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 10,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_010.parquet",
+        "timings_sec": {
+          "download": 1.6116,
+          "calibration": 0.0253,
+          "extract": 1080.9085,
+          "labels": 0.083,
+          "parquet_write": 0.0175,
+          "clip_total": 1082.6491
+        },
+        "derived": {
+          "sec_per_frame": 0.600505,
+          "rows_per_sec": 1.6653
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 145,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 11,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_011.parquet",
+        "timings_sec": {
+          "download": 1.4932,
+          "calibration": 0.0247,
+          "extract": 1104.8569,
+          "labels": 0.075,
+          "parquet_write": 0.018,
+          "clip_total": 1106.4711
+        },
+        "derived": {
+          "sec_per_frame": 0.613809,
+          "rows_per_sec": 1.6292
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 146,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 12,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_012.parquet",
+        "timings_sec": {
+          "download": 1.0381,
+          "calibration": 0.0253,
+          "extract": 628.293,
+          "labels": 0.2147,
+          "parquet_write": 0.0115,
+          "clip_total": 629.5843
+        },
+        "derived": {
+          "sec_per_frame": 0.349052,
+          "rows_per_sec": 2.8649
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 147,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 13,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_013.parquet",
+        "timings_sec": {
+          "download": 1.23,
+          "calibration": 0.0228,
+          "extract": 828.4547,
+          "labels": 0.0983,
+          "parquet_write": 0.0128,
+          "clip_total": 829.8206
+        },
+        "derived": {
+          "sec_per_frame": 0.460253,
+          "rows_per_sec": 2.1727
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 148,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 14,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_014.parquet",
+        "timings_sec": {
+          "download": 1.2635,
+          "calibration": 0.0258,
+          "extract": 861.2515,
+          "labels": 0.0768,
+          "parquet_write": 0.0135,
+          "clip_total": 862.6331
+        },
+        "derived": {
+          "sec_per_frame": 0.478473,
+          "rows_per_sec": 2.09
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 149,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 15,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/GRuOSrz3kdY_015.parquet",
+        "timings_sec": {
+          "download": 1.1267,
+          "calibration": 0.0243,
+          "extract": 714.4137,
+          "labels": 0.0774,
+          "parquet_write": 0.0121,
+          "clip_total": 715.656
+        },
+        "derived": {
+          "sec_per_frame": 0.396896,
+          "rows_per_sec": 2.5195
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 150,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 16,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_016.parquet",
+        "timings_sec": {
+          "download": 1.3302,
+          "calibration": 0.0253,
+          "extract": 1115.6302,
+          "labels": 0.0736,
+          "parquet_write": 0.0195,
+          "clip_total": 1117.0821
+        },
+        "derived": {
+          "sec_per_frame": 0.619795,
+          "rows_per_sec": 1.6134
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 151,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 17,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_017.parquet",
+        "timings_sec": {
+          "download": 1.3295,
+          "calibration": 0.0248,
+          "extract": 1088.5366,
+          "labels": 0.0775,
+          "parquet_write": 0.0175,
+          "clip_total": 1089.9891
+        },
+        "derived": {
+          "sec_per_frame": 0.604743,
+          "rows_per_sec": 1.6536
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 152,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 18,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_018.parquet",
+        "timings_sec": {
+          "download": 1.4334,
+          "calibration": 0.0266,
+          "extract": 1162.2814,
+          "labels": 0.0742,
+          "parquet_write": 0.0209,
+          "clip_total": 1163.8403
+        },
+        "derived": {
+          "sec_per_frame": 0.645712,
+          "rows_per_sec": 1.5487
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 153,
+        "source_id": "GRuOSrz3kdY",
+        "clip_index": 19,
+        "split": "train",
+        "n_rows": 694,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/GRuOSrz3kdY_019.parquet",
+        "timings_sec": {
+          "download": 0.7045,
+          "calibration": 0.0276,
+          "extract": 281.5657,
+          "labels": 0.2239,
+          "parquet_write": 0.0121,
+          "clip_total": 282.5359
+        },
+        "derived": {
+          "sec_per_frame": 0.405714,
+          "rows_per_sec": 2.4648
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 694
+      },
+      {
+        "clip_id": 154,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 1,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/Fr3ue3w5QRY_001.parquet",
+        "timings_sec": {
+          "download": 1.1349,
+          "calibration": 0.0252,
+          "extract": 703.9216,
+          "labels": 0.0767,
+          "parquet_write": 0.012,
+          "clip_total": 705.1725
+        },
+        "derived": {
+          "sec_per_frame": 0.391068,
+          "rows_per_sec": 2.5571
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 155,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 2,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_002.parquet",
+        "timings_sec": {
+          "download": 1.2174,
+          "calibration": 0.0242,
+          "extract": 1086.2923,
+          "labels": 0.1031,
+          "parquet_write": 0.0178,
+          "clip_total": 1087.658
+        },
+        "derived": {
+          "sec_per_frame": 0.603496,
+          "rows_per_sec": 1.657
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 156,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 3,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_003.parquet",
+        "timings_sec": {
+          "download": 1.4613,
+          "calibration": 0.0267,
+          "extract": 912.1577,
+          "labels": 0.1213,
+          "parquet_write": 0.0169,
+          "clip_total": 913.7868
+        },
+        "derived": {
+          "sec_per_frame": 0.506754,
+          "rows_per_sec": 1.9733
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 157,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 4,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_004.parquet",
+        "timings_sec": {
+          "download": 1.3814,
+          "calibration": 0.0252,
+          "extract": 1065.1533,
+          "labels": 0.0793,
+          "parquet_write": 0.0176,
+          "clip_total": 1066.6601
+        },
+        "derived": {
+          "sec_per_frame": 0.591752,
+          "rows_per_sec": 1.6899
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 158,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_005.parquet",
+        "timings_sec": {
+          "download": 1.4825,
+          "calibration": 0.026,
+          "extract": 1125.599,
+          "labels": 0.0803,
+          "parquet_write": 0.0201,
+          "clip_total": 1127.2113
+        },
+        "derived": {
+          "sec_per_frame": 0.625333,
+          "rows_per_sec": 1.5991
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 159,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 6,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_006.parquet",
+        "timings_sec": {
+          "download": 1.1561,
+          "calibration": 0.0254,
+          "extract": 1112.7312,
+          "labels": 0.0809,
+          "parquet_write": 0.02,
+          "clip_total": 1114.017
+        },
+        "derived": {
+          "sec_per_frame": 0.618184,
+          "rows_per_sec": 1.6176
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 160,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_007.parquet",
+        "timings_sec": {
+          "download": 1.1868,
+          "calibration": 0.0243,
+          "extract": 855.937,
+          "labels": 0.0755,
+          "parquet_write": 0.0132,
+          "clip_total": 857.2389
+        },
+        "derived": {
+          "sec_per_frame": 0.475521,
+          "rows_per_sec": 2.103
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 161,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 8,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_008.parquet",
+        "timings_sec": {
+          "download": 1.2386,
+          "calibration": 0.0245,
+          "extract": 687.4617,
+          "labels": 0.0884,
+          "parquet_write": 0.0128,
+          "clip_total": 688.8279
+        },
+        "derived": {
+          "sec_per_frame": 0.381923,
+          "rows_per_sec": 2.6183
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 162,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 9,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_009.parquet",
+        "timings_sec": {
+          "download": 1.4919,
+          "calibration": 0.0289,
+          "extract": 873.9534,
+          "labels": 0.0943,
+          "parquet_write": 0.0133,
+          "clip_total": 875.5838
+        },
+        "derived": {
+          "sec_per_frame": 0.48553,
+          "rows_per_sec": 2.0596
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 163,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 10,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_010.parquet",
+        "timings_sec": {
+          "download": 1.1183,
+          "calibration": 0.026,
+          "extract": 879.1346,
+          "labels": 0.0768,
+          "parquet_write": 0.0135,
+          "clip_total": 880.3713
+        },
+        "derived": {
+          "sec_per_frame": 0.488408,
+          "rows_per_sec": 2.0475
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 164,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 11,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_011.parquet",
+        "timings_sec": {
+          "download": 1.5925,
+          "calibration": 0.0243,
+          "extract": 892.1329,
+          "labels": 0.0972,
+          "parquet_write": 0.0135,
+          "clip_total": 893.8626
+        },
+        "derived": {
+          "sec_per_frame": 0.495629,
+          "rows_per_sec": 2.0176
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 165,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 12,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_012.parquet",
+        "timings_sec": {
+          "download": 1.0349,
+          "calibration": 0.0304,
+          "extract": 1113.9385,
+          "labels": 0.2437,
+          "parquet_write": 0.0176,
+          "clip_total": 1115.2684
+        },
+        "derived": {
+          "sec_per_frame": 0.618855,
+          "rows_per_sec": 1.6159
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 166,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 13,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/Fr3ue3w5QRY_013.parquet",
+        "timings_sec": {
+          "download": 1.44,
+          "calibration": 0.0279,
+          "extract": 1057.88,
+          "labels": 0.1122,
+          "parquet_write": 0.0198,
+          "clip_total": 1059.4835
+        },
+        "derived": {
+          "sec_per_frame": 0.587711,
+          "rows_per_sec": 1.7015
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 167,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 14,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/Fr3ue3w5QRY_014.parquet",
+        "timings_sec": {
+          "download": 1.1851,
+          "calibration": 0.0298,
+          "extract": 1096.1695,
+          "labels": 0.1055,
+          "parquet_write": 0.0177,
+          "clip_total": 1097.5107
+        },
+        "derived": {
+          "sec_per_frame": 0.608983,
+          "rows_per_sec": 1.6421
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 168,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 15,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_015.parquet",
+        "timings_sec": {
+          "download": 1.416,
+          "calibration": 0.037,
+          "extract": 1092.6023,
+          "labels": 0.0794,
+          "parquet_write": 0.0193,
+          "clip_total": 1094.1573
+        },
+        "derived": {
+          "sec_per_frame": 0.607001,
+          "rows_per_sec": 1.6474
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 169,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 16,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_016.parquet",
+        "timings_sec": {
+          "download": 1.3238,
+          "calibration": 0.0252,
+          "extract": 1128.7372,
+          "labels": 0.106,
+          "parquet_write": 0.0179,
+          "clip_total": 1130.2134
+        },
+        "derived": {
+          "sec_per_frame": 0.627076,
+          "rows_per_sec": 1.5947
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 170,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 17,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/Fr3ue3w5QRY_017.parquet",
+        "timings_sec": {
+          "download": 1.4936,
+          "calibration": 0.0421,
+          "extract": 867.2666,
+          "labels": 0.0893,
+          "parquet_write": 0.0133,
+          "clip_total": 868.9069
+        },
+        "derived": {
+          "sec_per_frame": 0.481815,
+          "rows_per_sec": 2.0755
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 171,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 18,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_018.parquet",
+        "timings_sec": {
+          "download": 1.6161,
+          "calibration": 0.0272,
+          "extract": 1129.9345,
+          "labels": 0.0776,
+          "parquet_write": 0.019,
+          "clip_total": 1131.6777
+        },
+        "derived": {
+          "sec_per_frame": 0.627741,
+          "rows_per_sec": 1.593
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 172,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 19,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_019.parquet",
+        "timings_sec": {
+          "download": 0.9691,
+          "calibration": 0.0248,
+          "extract": 1105.7603,
+          "labels": 0.082,
+          "parquet_write": 0.0184,
+          "clip_total": 1106.8581
+        },
+        "derived": {
+          "sec_per_frame": 0.614311,
+          "rows_per_sec": 1.6278
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 173,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 20,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_020.parquet",
+        "timings_sec": {
+          "download": 0.9376,
+          "calibration": 0.0248,
+          "extract": 702.753,
+          "labels": 0.0909,
+          "parquet_write": 0.0125,
+          "clip_total": 703.8209
+        },
+        "derived": {
+          "sec_per_frame": 0.390418,
+          "rows_per_sec": 2.5614
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 174,
+        "source_id": "Fr3ue3w5QRY",
+        "clip_index": 21,
+        "split": "train",
+        "n_rows": 636,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/Fr3ue3w5QRY_021.parquet",
+        "timings_sec": {
+          "download": 0.8915,
+          "calibration": 0.0261,
+          "extract": 396.1796,
+          "labels": 0.1472,
+          "parquet_write": 0.0157,
+          "clip_total": 397.2633
+        },
+        "derived": {
+          "sec_per_frame": 0.622924,
+          "rows_per_sec": 1.6053
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 636
+      },
+      {
+        "clip_id": 27,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 1,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/jZ18INu4LQc_001.parquet",
+        "timings_sec": {
+          "download": 1.2806,
+          "calibration": 0.0293,
+          "extract": 1106.2234,
+          "labels": 0.078,
+          "parquet_write": 0.0176,
+          "clip_total": 1107.6319
+        },
+        "derived": {
+          "sec_per_frame": 0.614569,
+          "rows_per_sec": 1.6272
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 28,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 2,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_002.parquet",
+        "timings_sec": {
+          "download": 1.5081,
+          "calibration": 0.0267,
+          "extract": 1090.5664,
+          "labels": 0.0749,
+          "parquet_write": 0.0175,
+          "clip_total": 1092.1968
+        },
+        "derived": {
+          "sec_per_frame": 0.60587,
+          "rows_per_sec": 1.6505
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 29,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 3,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_003.parquet",
+        "timings_sec": {
+          "download": 1.2316,
+          "calibration": 0.0267,
+          "extract": 715.741,
+          "labels": 0.103,
+          "parquet_write": 0.0127,
+          "clip_total": 717.1169
+        },
+        "derived": {
+          "sec_per_frame": 0.397634,
+          "rows_per_sec": 2.5149
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 30,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 4,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_004.parquet",
+        "timings_sec": {
+          "download": 1.4944,
+          "calibration": 0.0347,
+          "extract": 1122.6704,
+          "labels": 0.1033,
+          "parquet_write": 0.0197,
+          "clip_total": 1124.3261
+        },
+        "derived": {
+          "sec_per_frame": 0.623706,
+          "rows_per_sec": 1.6033
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 31,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_005.parquet",
+        "timings_sec": {
+          "download": 1.1571,
+          "calibration": 0.0268,
+          "extract": 1102.0885,
+          "labels": 0.0832,
+          "parquet_write": 0.0177,
+          "clip_total": 1103.3766
+        },
+        "derived": {
+          "sec_per_frame": 0.612271,
+          "rows_per_sec": 1.6333
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 32,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 6,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_006.parquet",
+        "timings_sec": {
+          "download": 1.416,
+          "calibration": 0.0306,
+          "extract": 712.6753,
+          "labels": 0.2595,
+          "parquet_write": 0.0122,
+          "clip_total": 714.3954
+        },
+        "derived": {
+          "sec_per_frame": 0.395931,
+          "rows_per_sec": 2.5257
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 33,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_007.parquet",
+        "timings_sec": {
+          "download": 1.3065,
+          "calibration": 0.0273,
+          "extract": 1045.1396,
+          "labels": 0.0792,
+          "parquet_write": 0.0179,
+          "clip_total": 1046.5737
+        },
+        "derived": {
+          "sec_per_frame": 0.580633,
+          "rows_per_sec": 1.7223
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 34,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 8,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_008.parquet",
+        "timings_sec": {
+          "download": 1.2458,
+          "calibration": 0.0262,
+          "extract": 880.54,
+          "labels": 0.2193,
+          "parquet_write": 0.0135,
+          "clip_total": 882.047
+        },
+        "derived": {
+          "sec_per_frame": 0.489189,
+          "rows_per_sec": 2.0442
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 35,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 9,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_009.parquet",
+        "timings_sec": {
+          "download": 1.3447,
+          "calibration": 0.0257,
+          "extract": 1071.4513,
+          "labels": 0.0844,
+          "parquet_write": 0.0176,
+          "clip_total": 1072.9269
+        },
+        "derived": {
+          "sec_per_frame": 0.595251,
+          "rows_per_sec": 1.68
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 36,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 10,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_010.parquet",
+        "timings_sec": {
+          "download": 1.1157,
+          "calibration": 0.026,
+          "extract": 1082.9076,
+          "labels": 0.0783,
+          "parquet_write": 0.0174,
+          "clip_total": 1084.1481
+        },
+        "derived": {
+          "sec_per_frame": 0.601615,
+          "rows_per_sec": 1.6622
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 37,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 11,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/jZ18INu4LQc_011.parquet",
+        "timings_sec": {
+          "download": 1.4941,
+          "calibration": 0.0245,
+          "extract": 654.9711,
+          "labels": 0.0755,
+          "parquet_write": 0.0114,
+          "clip_total": 656.5784
+        },
+        "derived": {
+          "sec_per_frame": 0.363873,
+          "rows_per_sec": 2.7482
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 38,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 12,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/jZ18INu4LQc_012.parquet",
+        "timings_sec": {
+          "download": 1.6264,
+          "calibration": 0.03,
+          "extract": 1075.7344,
+          "labels": 0.2036,
+          "parquet_write": 0.0195,
+          "clip_total": 1077.6172
+        },
+        "derived": {
+          "sec_per_frame": 0.59763,
+          "rows_per_sec": 1.6733
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 39,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 13,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/jZ18INu4LQc_013.parquet",
+        "timings_sec": {
+          "download": 1.4483,
+          "calibration": 0.0252,
+          "extract": 1011.1266,
+          "labels": 0.0994,
+          "parquet_write": 0.0179,
+          "clip_total": 1012.7209
+        },
+        "derived": {
+          "sec_per_frame": 0.561737,
+          "rows_per_sec": 1.7802
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 40,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 14,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_014.parquet",
+        "timings_sec": {
+          "download": 1.4145,
+          "calibration": 0.0253,
+          "extract": 802.5903,
+          "labels": 0.2006,
+          "parquet_write": 0.0124,
+          "clip_total": 804.245
+        },
+        "derived": {
+          "sec_per_frame": 0.445883,
+          "rows_per_sec": 2.2427
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 41,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 15,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_015.parquet",
+        "timings_sec": {
+          "download": 1.4501,
+          "calibration": 0.0262,
+          "extract": 1096.2567,
+          "labels": 0.2021,
+          "parquet_write": 0.0182,
+          "clip_total": 1097.9567
+        },
+        "derived": {
+          "sec_per_frame": 0.609031,
+          "rows_per_sec": 1.642
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 42,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 16,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_016.parquet",
+        "timings_sec": {
+          "download": 1.1312,
+          "calibration": 0.0291,
+          "extract": 1122.1828,
+          "labels": 0.1224,
+          "parquet_write": 0.0178,
+          "clip_total": 1123.4868
+        },
+        "derived": {
+          "sec_per_frame": 0.623435,
+          "rows_per_sec": 1.604
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 43,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 17,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_017.parquet",
+        "timings_sec": {
+          "download": 1.2153,
+          "calibration": 0.0245,
+          "extract": 1143.2108,
+          "labels": 0.0762,
+          "parquet_write": 0.0197,
+          "clip_total": 1144.5499
+        },
+        "derived": {
+          "sec_per_frame": 0.635117,
+          "rows_per_sec": 1.5745
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 44,
+        "source_id": "jZ18INu4LQc",
+        "clip_index": 18,
+        "split": "train",
+        "n_rows": 705,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/jZ18INu4LQc_018.parquet",
+        "timings_sec": {
+          "download": 0.6715,
+          "calibration": 0.0249,
+          "extract": 337.193,
+          "labels": 0.0821,
+          "parquet_write": 0.0115,
+          "clip_total": 337.9849
+        },
+        "derived": {
+          "sec_per_frame": 0.478288,
+          "rows_per_sec": 2.0908
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 705
+      },
+      {
+        "clip_id": 45,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 1,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_001.parquet",
+        "timings_sec": {
+          "download": 1.3586,
+          "calibration": 0.0239,
+          "extract": 661.9778,
+          "labels": 0.0774,
+          "parquet_write": 0.0115,
+          "clip_total": 663.451
+        },
+        "derived": {
+          "sec_per_frame": 0.367765,
+          "rows_per_sec": 2.7191
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 46,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 2,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_002.parquet",
+        "timings_sec": {
+          "download": 1.1604,
+          "calibration": 0.0232,
+          "extract": 808.0957,
+          "labels": 0.1412,
+          "parquet_write": 0.0127,
+          "clip_total": 809.435
+        },
+        "derived": {
+          "sec_per_frame": 0.448942,
+          "rows_per_sec": 2.2275
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 47,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 3,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_003.parquet",
+        "timings_sec": {
+          "download": 1.2175,
+          "calibration": 0.0299,
+          "extract": 1128.284,
+          "labels": 0.0759,
+          "parquet_write": 0.019,
+          "clip_total": 1129.6297
+        },
+        "derived": {
+          "sec_per_frame": 0.626824,
+          "rows_per_sec": 1.5953
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 48,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 4,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_004.parquet",
+        "timings_sec": {
+          "download": 1.4011,
+          "calibration": 0.0248,
+          "extract": 1097.9283,
+          "labels": 0.0835,
+          "parquet_write": 0.0197,
+          "clip_total": 1099.4609
+        },
+        "derived": {
+          "sec_per_frame": 0.60996,
+          "rows_per_sec": 1.6395
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 49,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_005.parquet",
+        "timings_sec": {
+          "download": 1.0503,
+          "calibration": 0.0265,
+          "extract": 1087.9324,
+          "labels": 0.1091,
+          "parquet_write": 0.0177,
+          "clip_total": 1089.1394
+        },
+        "derived": {
+          "sec_per_frame": 0.604407,
+          "rows_per_sec": 1.6545
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 50,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 6,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_006.parquet",
+        "timings_sec": {
+          "download": 1.3838,
+          "calibration": 0.0255,
+          "extract": 1105.1961,
+          "labels": 0.0829,
+          "parquet_write": 0.0179,
+          "clip_total": 1106.7096
+        },
+        "derived": {
+          "sec_per_frame": 0.613998,
+          "rows_per_sec": 1.6287
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 51,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_007.parquet",
+        "timings_sec": {
+          "download": 1.1762,
+          "calibration": 0.027,
+          "extract": 1086.3718,
+          "labels": 0.0862,
+          "parquet_write": 0.0194,
+          "clip_total": 1087.684
+        },
+        "derived": {
+          "sec_per_frame": 0.60354,
+          "rows_per_sec": 1.6569
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 52,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 8,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/vq3CZAx3GnM_008.parquet",
+        "timings_sec": {
+          "download": 1.423,
+          "calibration": 0.0249,
+          "extract": 1091.4014,
+          "labels": 0.0846,
+          "parquet_write": 0.0207,
+          "clip_total": 1092.9584
+        },
+        "derived": {
+          "sec_per_frame": 0.606334,
+          "rows_per_sec": 1.6493
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 53,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 9,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_009.parquet",
+        "timings_sec": {
+          "download": 1.3253,
+          "calibration": 0.0238,
+          "extract": 1087.7605,
+          "labels": 0.0844,
+          "parquet_write": 0.0201,
+          "clip_total": 1089.2175
+        },
+        "derived": {
+          "sec_per_frame": 0.604311,
+          "rows_per_sec": 1.6548
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 54,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 10,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_010.parquet",
+        "timings_sec": {
+          "download": 1.1905,
+          "calibration": 0.0247,
+          "extract": 1129.1727,
+          "labels": 0.0777,
+          "parquet_write": 0.0179,
+          "clip_total": 1130.4867
+        },
+        "derived": {
+          "sec_per_frame": 0.627318,
+          "rows_per_sec": 1.5941
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 55,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 11,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_011.parquet",
+        "timings_sec": {
+          "download": 1.3325,
+          "calibration": 0.0258,
+          "extract": 1085.038,
+          "labels": 0.0787,
+          "parquet_write": 0.0191,
+          "clip_total": 1086.4974
+        },
+        "derived": {
+          "sec_per_frame": 0.602799,
+          "rows_per_sec": 1.6589
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 56,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 12,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_012.parquet",
+        "timings_sec": {
+          "download": 1.9291,
+          "calibration": 0.027,
+          "extract": 1106.5262,
+          "labels": 0.0764,
+          "parquet_write": 0.019,
+          "clip_total": 1108.5811
+        },
+        "derived": {
+          "sec_per_frame": 0.614737,
+          "rows_per_sec": 1.6267
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 57,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 13,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_013.parquet",
+        "timings_sec": {
+          "download": 1.4155,
+          "calibration": 0.0258,
+          "extract": 1120.2662,
+          "labels": 0.101,
+          "parquet_write": 0.0236,
+          "clip_total": 1121.8361
+        },
+        "derived": {
+          "sec_per_frame": 0.62237,
+          "rows_per_sec": 1.6068
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 58,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 14,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/vq3CZAx3GnM_014.parquet",
+        "timings_sec": {
+          "download": 1.3848,
+          "calibration": 0.0252,
+          "extract": 898.9821,
+          "labels": 0.0945,
+          "parquet_write": 0.0137,
+          "clip_total": 900.5025
+        },
+        "derived": {
+          "sec_per_frame": 0.499434,
+          "rows_per_sec": 2.0023
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 59,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 15,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_015.parquet",
+        "timings_sec": {
+          "download": 1.8511,
+          "calibration": 0.0306,
+          "extract": 742.5605,
+          "labels": 0.0771,
+          "parquet_write": 0.0123,
+          "clip_total": 744.5335
+        },
+        "derived": {
+          "sec_per_frame": 0.412534,
+          "rows_per_sec": 2.424
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 60,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 16,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_016.parquet",
+        "timings_sec": {
+          "download": 1.5255,
+          "calibration": 0.0262,
+          "extract": 1107.1038,
+          "labels": 0.2529,
+          "parquet_write": 0.0182,
+          "clip_total": 1108.93
+        },
+        "derived": {
+          "sec_per_frame": 0.615058,
+          "rows_per_sec": 1.6259
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 61,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 17,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_017.parquet",
+        "timings_sec": {
+          "download": 1.5788,
+          "calibration": 0.029,
+          "extract": 1147.6638,
+          "labels": 0.0823,
+          "parquet_write": 0.0202,
+          "clip_total": 1149.3776
+        },
+        "derived": {
+          "sec_per_frame": 0.637591,
+          "rows_per_sec": 1.5684
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 62,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 18,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/vq3CZAx3GnM_018.parquet",
+        "timings_sec": {
+          "download": 1.2993,
+          "calibration": 0.0287,
+          "extract": 1123.1359,
+          "labels": 0.2164,
+          "parquet_write": 0.0181,
+          "clip_total": 1124.7018
+        },
+        "derived": {
+          "sec_per_frame": 0.623964,
+          "rows_per_sec": 1.6027
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 63,
+        "source_id": "vq3CZAx3GnM",
+        "clip_index": 19,
+        "split": "test",
+        "n_rows": 1795,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/vq3CZAx3GnM_019.parquet",
+        "timings_sec": {
+          "download": 1.3396,
+          "calibration": 0.0251,
+          "extract": 1015.7055,
+          "labels": 0.1139,
+          "parquet_write": 0.0173,
+          "clip_total": 1017.2046
+        },
+        "derived": {
+          "sec_per_frame": 0.565853,
+          "rows_per_sec": 1.7672
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1795
+      },
+      {
+        "clip_id": 64,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 1,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_001.parquet",
+        "timings_sec": {
+          "download": 1.2314,
+          "calibration": 0.0253,
+          "extract": 1094.0567,
+          "labels": 0.0787,
+          "parquet_write": 0.0181,
+          "clip_total": 1095.4133
+        },
+        "derived": {
+          "sec_per_frame": 0.607809,
+          "rows_per_sec": 1.6453
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 65,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 2,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_002.parquet",
+        "timings_sec": {
+          "download": 1.0324,
+          "calibration": 0.0254,
+          "extract": 703.556,
+          "labels": 0.0782,
+          "parquet_write": 0.0127,
+          "clip_total": 704.7066
+        },
+        "derived": {
+          "sec_per_frame": 0.390864,
+          "rows_per_sec": 2.5584
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 66,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 3,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/1rXZJyVXUHU_003.parquet",
+        "timings_sec": {
+          "download": 1.2554,
+          "calibration": 0.0247,
+          "extract": 706.4222,
+          "labels": 0.0723,
+          "parquet_write": 0.0127,
+          "clip_total": 707.7893
+        },
+        "derived": {
+          "sec_per_frame": 0.392457,
+          "rows_per_sec": 2.5481
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 67,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 4,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_004.parquet",
+        "timings_sec": {
+          "download": 1.6005,
+          "calibration": 0.0236,
+          "extract": 861.2734,
+          "labels": 0.0949,
+          "parquet_write": 0.013,
+          "clip_total": 863.0076
+        },
+        "derived": {
+          "sec_per_frame": 0.478485,
+          "rows_per_sec": 2.0899
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 68,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 5,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_005.parquet",
+        "timings_sec": {
+          "download": 1.2948,
+          "calibration": 0.0258,
+          "extract": 1153.25,
+          "labels": 0.0954,
+          "parquet_write": 0.0189,
+          "clip_total": 1154.6882
+        },
+        "derived": {
+          "sec_per_frame": 0.640694,
+          "rows_per_sec": 1.5608
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 69,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 6,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_006.parquet",
+        "timings_sec": {
+          "download": 1.2075,
+          "calibration": 0.0338,
+          "extract": 1107.2027,
+          "labels": 0.0779,
+          "parquet_write": 0.0178,
+          "clip_total": 1108.5431
+        },
+        "derived": {
+          "sec_per_frame": 0.615113,
+          "rows_per_sec": 1.6257
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 70,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 7,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_007.parquet",
+        "timings_sec": {
+          "download": 1.4949,
+          "calibration": 0.0258,
+          "extract": 1092.6269,
+          "labels": 0.104,
+          "parquet_write": 0.0197,
+          "clip_total": 1094.2748
+        },
+        "derived": {
+          "sec_per_frame": 0.607015,
+          "rows_per_sec": 1.6474
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 71,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 8,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_008.parquet",
+        "timings_sec": {
+          "download": 1.0865,
+          "calibration": 0.0289,
+          "extract": 693.1293,
+          "labels": 0.0705,
+          "parquet_write": 0.0126,
+          "clip_total": 694.3298
+        },
+        "derived": {
+          "sec_per_frame": 0.385072,
+          "rows_per_sec": 2.5969
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 72,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 9,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_009.parquet",
+        "timings_sec": {
+          "download": 1.4846,
+          "calibration": 0.0247,
+          "extract": 1146.3756,
+          "labels": 0.0781,
+          "parquet_write": 0.0192,
+          "clip_total": 1147.9856
+        },
+        "derived": {
+          "sec_per_frame": 0.636875,
+          "rows_per_sec": 1.5702
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 73,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 10,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/1rXZJyVXUHU_010.parquet",
+        "timings_sec": {
+          "download": 1.1042,
+          "calibration": 0.0313,
+          "extract": 1027.5883,
+          "labels": 0.077,
+          "parquet_write": 0.0175,
+          "clip_total": 1028.8216
+        },
+        "derived": {
+          "sec_per_frame": 0.570882,
+          "rows_per_sec": 1.7517
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 74,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 11,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_011.parquet",
+        "timings_sec": {
+          "download": 1.4191,
+          "calibration": 0.0264,
+          "extract": 1104.6032,
+          "labels": 0.0812,
+          "parquet_write": 0.0183,
+          "clip_total": 1106.1514
+        },
+        "derived": {
+          "sec_per_frame": 0.613668,
+          "rows_per_sec": 1.6295
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 75,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 12,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_012.parquet",
+        "timings_sec": {
+          "download": 1.291,
+          "calibration": 0.0243,
+          "extract": 663.0832,
+          "labels": 0.081,
+          "parquet_write": 0.0116,
+          "clip_total": 664.4929
+        },
+        "derived": {
+          "sec_per_frame": 0.36838,
+          "rows_per_sec": 2.7146
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 76,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 13,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_013.parquet",
+        "timings_sec": {
+          "download": 1.2709,
+          "calibration": 0.0275,
+          "extract": 696.1852,
+          "labels": 0.0863,
+          "parquet_write": 0.0124,
+          "clip_total": 697.5842
+        },
+        "derived": {
+          "sec_per_frame": 0.38677,
+          "rows_per_sec": 2.5855
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 77,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 14,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_014.parquet",
+        "timings_sec": {
+          "download": 1.207,
+          "calibration": 0.0243,
+          "extract": 721.5986,
+          "labels": 0.0744,
+          "parquet_write": 0.0128,
+          "clip_total": 722.919
+        },
+        "derived": {
+          "sec_per_frame": 0.400888,
+          "rows_per_sec": 2.4945
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 78,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 15,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_015.parquet",
+        "timings_sec": {
+          "download": 1.4238,
+          "calibration": 0.0304,
+          "extract": 1129.6976,
+          "labels": 0.0799,
+          "parquet_write": 0.0215,
+          "clip_total": 1131.2566
+        },
+        "derived": {
+          "sec_per_frame": 0.62761,
+          "rows_per_sec": 1.5933
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 79,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 16,
+        "split": "train",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_016.parquet",
+        "timings_sec": {
+          "download": 1.3032,
+          "calibration": 0.0414,
+          "extract": 702.217,
+          "labels": 0.0849,
+          "parquet_write": 0.0121,
+          "clip_total": 703.6606
+        },
+        "derived": {
+          "sec_per_frame": 0.390121,
+          "rows_per_sec": 2.5633
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 80,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 17,
+        "split": "test",
+        "n_rows": 1800,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/test/1rXZJyVXUHU_017.parquet",
+        "timings_sec": {
+          "download": 1.2419,
+          "calibration": 0.0325,
+          "extract": 1106.5771,
+          "labels": 0.0823,
+          "parquet_write": 0.0202,
+          "clip_total": 1107.9573
+        },
+        "derived": {
+          "sec_per_frame": 0.614765,
+          "rows_per_sec": 1.6266
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 1800
+      },
+      {
+        "clip_id": 81,
+        "source_id": "1rXZJyVXUHU",
+        "clip_index": 18,
+        "split": "train",
+        "n_rows": 239,
+        "output_path": "",
+        "output_s3_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/train/1rXZJyVXUHU_018.parquet",
+        "timings_sec": {
+          "download": 0.4997,
+          "calibration": 0.0253,
+          "extract": 94.6811,
+          "labels": 0.2925,
+          "parquet_write": 0.0108,
+          "clip_total": 95.5112
+        },
+        "derived": {
+          "sec_per_frame": 0.396155,
+          "rows_per_sec": 2.5243
+        },
+        "source_fps": 30.0,
+        "n_source_frames": 239
+      }
+    ]
+  },
+  "s3_bucket": "sports-footage-autotrim-bucket",
+  "s3_prefix": "feature_extraction/full_127_limitedconcurr_20260518/",
+  "s3_run_uri": "s3://sports-footage-autotrim-bucket/feature_extraction/full_127_limitedconcurr_20260518/",
+  "timing_summary": {
+    "wall_clock_sec": 3352.912,
+    "mean_sec_per_frame_extract": 0.552538,
+    "n_clips_ok": 127,
+    "n_clips_failed": 0,
+    "timings_uri_suffix": "timings.json"
+  },
+  "orchestration": "parallel_ecs_fanout"
+}
