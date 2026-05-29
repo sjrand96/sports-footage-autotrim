@@ -11,7 +11,7 @@ const DEFAULT_CHECKPOINT = path.join(
 )
 const PREDICT_SCRIPT = path.join(REPO_ROOT, 'models/lstm/predict_one.py')
 
-const DEV_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173'
+const DEV_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
 const isDev =
   process.env.ELECTRON_DEV === '1' ||
   (!app.isPackaged && process.env.NODE_ENV === 'development')
