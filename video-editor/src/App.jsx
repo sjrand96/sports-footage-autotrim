@@ -18,6 +18,7 @@ import {
   generatePredictions,
   predictProgressLabel,
 } from './generatePredictions.js'
+import { smoothPlayingIntervals } from './intervalSmoothing.js'
 import './App.css'
 
 const MIN_INTERVAL_SEC = 0.05
@@ -28,6 +29,44 @@ function applyImportedIntervals(imported, nextId) {
     start: iv.start,
     end: iv.end,
   }))
+}
+
+function smoothIntervalsWithNewIds(intervals, durationSec, nextId) {
+  if (intervals.length === 0) return []
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return intervals
+  const smoothed = smoothPlayingIntervals(intervals, durationSec)
+  return smoothed.map((iv) => ({
+    id: nextId(),
+    start: iv.start,
+    end: iv.end,
+  }))
+}
+
+function cloneIntervals(intervals) {
+  return intervals.map((iv) => ({ id: iv.id, start: iv.start, end: iv.end }))
+}
+
+function updateIntervalBoundary(prev, id, edge, rawTime, durationSec) {
+  const sorted = [...prev].sort((a, b) => a.start - b.start)
+  const i = sorted.findIndex((x) => x.id === id)
+  if (i < 0) return prev
+  const cur = { ...sorted[i] }
+  const before = sorted[i - 1]
+  const after = sorted[i + 1]
+
+  if (edge === 'start') {
+    const minS = before ? before.end + MIN_INTERVAL_SEC : 0
+    const maxS = cur.end - MIN_INTERVAL_SEC
+    cur.start = Math.min(Math.max(rawTime, minS), maxS)
+  } else {
+    const minE = cur.start + MIN_INTERVAL_SEC
+    const maxE = after ? after.start - MIN_INTERVAL_SEC : durationSec
+    cur.end = Math.min(Math.max(rawTime, minE), maxE)
+  }
+
+  const out = [...sorted]
+  out[i] = cur
+  return out
 }
 
 export default function App() {
@@ -43,10 +82,13 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [editorIntervals, setEditorIntervals] = useState([])
+  /** Unsmoothed playing segments; restored when smoothing is turned off. */
+  const [rawEditorIntervals, setRawEditorIntervals] = useState([])
   const [predictedIntervals, setPredictedIntervals] = useState([])
   const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
   const [showGroundTruth, setShowGroundTruth] = useState(false)
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
+  const [smoothIntervals, setSmoothIntervals] = useState(true)
   const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
   const [editorLabelsImportName, setEditorLabelsImportName] = useState('')
   const [groundTruthLabelsImportName, setGroundTruthLabelsImportName] =
@@ -91,9 +133,11 @@ export default function App() {
     setDuration(0)
     setIsPlaying(false)
     setEditorIntervals([])
+    setRawEditorIntervals([])
     setPredictedIntervals([])
     setGroundTruthIntervals([])
     setShowGroundTruth(false)
+    setSmoothIntervals(true)
     setPredictLabelsImportName('')
     setEditorLabelsImportName('')
     setGroundTruthLabelsImportName('')
@@ -144,7 +188,12 @@ export default function App() {
       )
 
       if (target === 'editor') {
-        setEditorIntervals(withIds)
+        setRawEditorIntervals(withIds)
+        setEditorIntervals(
+          smoothIntervals
+            ? smoothIntervalsWithNewIds(withIds, duration, nextIntervalId)
+            : withIds,
+        )
         setGroundTruthIntervals([])
         setShowGroundTruth(false)
         setEditorLabelsImportName(file.name)
@@ -152,8 +201,12 @@ export default function App() {
         setGroundTruthLabelsImportName('')
       } else if (target === 'predicted') {
         setPredictedIntervals(withIds)
+        const editorRaw = applyImportedIntervals(imported, nextIntervalId)
+        setRawEditorIntervals(editorRaw)
         setEditorIntervals(
-          applyImportedIntervals(imported, nextIntervalId),
+          smoothIntervals
+            ? smoothIntervalsWithNewIds(editorRaw, duration, nextIntervalId)
+            : editorRaw,
         )
         setPredictLabelsImportName(file.name)
         if (hasGroundTruthColumn) {
@@ -179,7 +232,22 @@ export default function App() {
       setLabelsImportError('')
       return true
     },
-    [duration, fileLabel, nextGroundTruthIntervalId, nextIntervalId],
+    [duration, fileLabel, nextGroundTruthIntervalId, nextIntervalId, smoothIntervals],
+  )
+
+  const onSmoothIntervalsChange = useCallback(
+    (enabled) => {
+      setSmoothIntervals(enabled)
+      if (rawEditorIntervals.length === 0) return
+      if (enabled) {
+        setEditorIntervals(
+          smoothIntervalsWithNewIds(rawEditorIntervals, duration, nextIntervalId),
+        )
+      } else {
+        setEditorIntervals(cloneIntervals(rawEditorIntervals))
+      }
+    },
+    [duration, nextIntervalId, rawEditorIntervals],
   )
 
   const onPickEditorLabels = useCallback(
@@ -327,31 +395,15 @@ export default function App() {
     (id, edge, rawTime) => {
       if (!Number.isFinite(duration) || duration <= 0) return
       setEditorIntervals((prev) => {
-        const sorted = [...prev].sort((a, b) => a.start - b.start)
-        const i = sorted.findIndex((x) => x.id === id)
-        if (i < 0) return prev
-        const cur = { ...sorted[i] }
-        const before = sorted[i - 1]
-        const after = sorted[i + 1]
-
-        if (edge === 'start') {
-          const minS = before ? before.end + MIN_INTERVAL_SEC : 0
-          const maxS = cur.end - MIN_INTERVAL_SEC
-          cur.start = Math.min(Math.max(rawTime, minS), maxS)
-          seek(cur.start)
-        } else {
-          const minE = cur.start + MIN_INTERVAL_SEC
-          const maxE = after ? after.start - MIN_INTERVAL_SEC : duration
-          cur.end = Math.min(Math.max(rawTime, minE), maxE)
-          seek(cur.end)
-        }
-
-        const out = [...sorted]
-        out[i] = cur
+        const out = updateIntervalBoundary(prev, id, edge, rawTime, duration)
+        if (out === prev) return prev
+        const iv = out.find((x) => x.id === id)
+        if (iv) seek(edge === 'start' ? iv.start : iv.end)
+        if (!smoothIntervals) setRawEditorIntervals(cloneIntervals(out))
         return out
       })
     },
-    [duration, seek],
+    [duration, seek, smoothIntervals],
   )
 
   const togglePlay = () => {
@@ -571,6 +623,16 @@ export default function App() {
                 ) : null}
 
                 <div className="playback-block">
+                  {isEditor ? (
+                    <label className="playback-selected-toggle">
+                      <input
+                        type="checkbox"
+                        checked={smoothIntervals}
+                        onChange={(e) => onSmoothIntervalsChange(e.target.checked)}
+                      />
+                      Smooth segment boundaries
+                    </label>
+                  ) : null}
                   <PlaybackTimeline
                     mode={appMode}
                     duration={duration}
