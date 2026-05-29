@@ -13,6 +13,11 @@ import {
   exportCutVideo,
   getLocalVideoPath,
 } from './exportCutVideo.js'
+import {
+  canGeneratePredictions,
+  generatePredictions,
+  predictProgressLabel,
+} from './generatePredictions.js'
 import './App.css'
 
 const MIN_INTERVAL_SEC = 0.05
@@ -49,6 +54,8 @@ export default function App() {
   const [labelsImportError, setLabelsImportError] = useState('')
   const [exportStatus, setExportStatus] = useState('')
   const [isExporting, setIsExporting] = useState(false)
+  const [predictStatus, setPredictStatus] = useState('')
+  const [isPredicting, setIsPredicting] = useState(false)
 
   const revokeUrl = useCallback((url) => {
     if (url && url.startsWith('blob:')) {
@@ -92,6 +99,7 @@ export default function App() {
     setGroundTruthLabelsImportName('')
     setLabelsImportError('')
     setExportStatus('')
+    setPredictStatus('')
   }
 
   const importLabelsFromFile = useCallback(
@@ -250,6 +258,47 @@ export default function App() {
     }
   }, [fileLabel, editorIntervals])
 
+  const onGeneratePredictions = useCallback(async () => {
+    setPredictStatus('')
+    setLabelsImportError('')
+    const file = sourceFileRef.current
+    const inputPath = sourceFilePathRef.current ?? getLocalVideoPath(file)
+    if (!canGeneratePredictions(duration, inputPath)) {
+      setLabelsImportError(
+        inputPath
+          ? 'Wait for the video to finish loading.'
+          : 'Generate predictions requires the desktop app. Run: npm run electron:dev',
+      )
+      return
+    }
+
+    setIsPredicting(true)
+    setPredictStatus('Generating predictions…')
+    try {
+      const result = await generatePredictions({
+        inputPath,
+        onProgress: (line) => setPredictStatus(predictProgressLabel(line)),
+      })
+      if (!result.ok) {
+        setLabelsImportError(result.error)
+        setPredictStatus('')
+        return
+      }
+
+      const stem = fileLabel.replace(/\.mp4$/i, '')
+      const syntheticFile = { name: `${stem}_predictions.csv` }
+      const target = appMode === 'editor' ? 'editor' : 'predicted'
+      const ok = importLabelsFromFile(syntheticFile, result.csvText, { target })
+      if (ok) {
+        setPredictStatus('Predictions loaded.')
+      } else {
+        setPredictStatus('')
+      }
+    } finally {
+      setIsPredicting(false)
+    }
+  }, [appMode, duration, fileLabel, importLabelsFromFile])
+
   const onTimeUpdate = () => {
     const v = videoRef.current
     if (!v) return
@@ -329,6 +378,12 @@ export default function App() {
 
   const isEditor = appMode === 'editor'
   const exportReady = isEditor && duration > 0 && canExportCut(editorIntervals)
+  const predictReady =
+    duration > 0 &&
+    canGeneratePredictions(
+      duration,
+      sourceFilePathRef.current ?? getLocalVideoPath(sourceFileRef.current),
+    )
 
   return (
     <div className="app">
@@ -418,6 +473,14 @@ export default function App() {
                       </div>
                       <button
                         type="button"
+                        className={`file-button file-button--secondary${!predictReady || isPredicting ? ' file-button--disabled' : ''}`}
+                        disabled={!predictReady || isPredicting}
+                        onClick={onGeneratePredictions}
+                      >
+                        {isPredicting ? 'Generating…' : 'Generate predictions'}
+                      </button>
+                      <button
+                        type="button"
                         className={`file-button file-button--secondary${!exportReady || isExporting ? ' file-button--disabled' : ''}`}
                         disabled={!exportReady || isExporting}
                         onClick={onExportCutVideo}
@@ -449,6 +512,14 @@ export default function App() {
                           </span>
                         ) : null}
                       </div>
+                      <button
+                        type="button"
+                        className={`file-button file-button--secondary${!predictReady || isPredicting ? ' file-button--disabled' : ''}`}
+                        disabled={!predictReady || isPredicting}
+                        onClick={onGeneratePredictions}
+                      >
+                        {isPredicting ? 'Generating…' : 'Generate predictions'}
+                      </button>
                       <div className="import-json-slot import-json-slot--truth">
                         <label
                           className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
@@ -487,6 +558,15 @@ export default function App() {
                     role="status"
                   >
                     {exportStatus}
+                  </p>
+                ) : null}
+
+                {predictStatus ? (
+                  <p
+                    className={`labels-import-status${predictStatus === 'Predictions loaded.' ? ' labels-import-status--ok' : ''}`}
+                    role="status"
+                  >
+                    {predictStatus}
                   </p>
                 ) : null}
 
