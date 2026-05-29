@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-WINDOW_SIZE = 90
+WINDOW_SIZE = 30
 WINDOW_RADIUS = WINDOW_SIZE // 2
 # Offsets are built as [-WINDOW_RADIUS, ..., -1, 0, 1, ..., WINDOW_RADIUS-1] (len=WINDOW_SIZE),
 # so the 0-offset (target frame) sits at index WINDOW_RADIUS.

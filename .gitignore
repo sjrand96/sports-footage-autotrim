@@ -4,6 +4,7 @@ data/preprocessed_labels/
 data/preprocessed_features/
 data/sample_predictions/
 data/*.mp4
+data/test/
 video-editor/node_modules/
 video-editor/.vite/deps/
 feature_extraction/_runs/
@@ -239,3 +240,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+training-pipeline/src/training/wandb/*
+training-pipeline/wandb/*
+data/s3_sample/*
+*.parquet
+*.mp4
+/training-pipeline/data/s3_cache
+wandb/*
+training-pipeline/outputs/*
+training-pipeline/data/*

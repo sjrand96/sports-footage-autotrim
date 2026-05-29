@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRAME_LABELS_CSV = REPO_ROOT / "data" / "preprocessed_labels" / "frame_labels.csv"
 DEFAULT_TRAIN_CLIPS_CSV = REPO_ROOT / "data" / "train_clips.csv"
 DEFAULT_TEST_CLIPS_CSV = REPO_ROOT / "data" / "test_clips.csv"
+DEFAULT_FOLDS_CSV = REPO_ROOT / "data" / "5_fold_train_test_split.csv"
 DEFAULT_FEATURES_ROOT = REPO_ROOT / "data" / "preprocessed_features"
 DEFAULT_BOUNDARY_MARGIN = 0  # frames to drop from loss on each side of a 0/1 transition
 DEFAULT_FRAME_STRIDE = 1  # train: use every Nth frame; test/eval always stride 1
@@ -147,7 +148,10 @@ def load_train_test_clip_ids(
     test_csv: Path = DEFAULT_TEST_CLIPS_CSV,
     labeled_clip_ids: set[str] | list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Load train/test clip ids from ``data/train_clips.csv`` and ``data/test_clips.csv``."""
+    """Load train/test clip ids from ``data/train_clips.csv`` and ``data/test_clips.csv``.
+
+    Labeled clips not listed in either CSV are ignored (e.g. held out for later evaluation).
+    """
     for path, name in ((train_csv, "train"), (test_csv, "test")):
         if not path.is_file():
             raise RuntimeError(
@@ -181,13 +185,6 @@ def load_train_test_clip_ids(
                 + ", ".join(bad)
                 + (" ..." if len(missing) > 5 else "")
             )
-        unassigned = labeled - train_set - test_set
-        if unassigned:
-            sample = sorted(unassigned)[:5]
-            raise RuntimeError(
-                f"{len(unassigned)} labeled clip(s) not in train or test CSV "
-                f"(e.g. {', '.join(sample)})"
-            )
 
     return sorted(train_ids), sorted(test_ids)
 
@@ -196,6 +193,108 @@ def clip_to_source_map(csv_path: Path = DEFAULT_FRAME_LABELS_CSV) -> dict[str, s
     df = pd.read_csv(csv_path, usecols=["clip_id", "source_id"])
     rows = df.drop_duplicates(subset=["clip_id"])
     return {str(r.clip_id): str(r.source_id) for r in rows.itertuples(index=False)}
+
+
+def load_source_folds(
+    csv_path: Path = DEFAULT_FOLDS_CSV,
+    *,
+    expected_folds: int = 5,
+    labeled_source_ids: set[str] | list[str] | None = None,
+) -> dict[str, int]:
+    """Return ``video_id`` (source) → ``fold_id`` from a fold assignment CSV."""
+    if not csv_path.is_file():
+        raise RuntimeError(f"missing fold assignment CSV: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    for col in ("video_id", "fold_id"):
+        if col not in df.columns:
+            raise RuntimeError(f"{csv_path} must have columns video_id and fold_id")
+
+    source_folds: dict[str, int] = {}
+    for row in df.itertuples(index=False):
+        source_id = str(row.video_id).strip()
+        fold_id = int(row.fold_id)
+        if not source_id:
+            continue
+        if source_id in source_folds:
+            raise RuntimeError(f"duplicate video_id in {csv_path}: {source_id!r}")
+        if fold_id < 1 or fold_id > expected_folds:
+            raise RuntimeError(
+                f"fold_id must be 1..{expected_folds} in {csv_path}; got {fold_id} for {source_id!r}"
+            )
+        source_folds[source_id] = fold_id
+
+    if not source_folds:
+        raise RuntimeError(f"no video_id rows in {csv_path}")
+
+    fold_ids = set(source_folds.values())
+    if len(fold_ids) != expected_folds:
+        raise RuntimeError(
+            f"expected folds 1..{expected_folds} all present in {csv_path}; got {sorted(fold_ids)}"
+        )
+
+    if labeled_source_ids is not None:
+        labeled = set(labeled_source_ids)
+        csv_sources = set(source_folds)
+        missing = csv_sources - labeled
+        if missing:
+            raise RuntimeError(
+                "fold CSV video_ids missing from labeled sources: "
+                + ", ".join(sorted(missing)[:5])
+                + (" ..." if len(missing) > 5 else "")
+            )
+
+    return source_folds
+
+
+def clip_ids_for_sources(
+    source_ids: set[str] | list[str],
+    clip_to_source: dict[str, str],
+) -> list[str]:
+    """Map source IDs to sorted clip IDs."""
+    wanted = set(source_ids)
+    return sorted(cid for cid, sid in clip_to_source.items() if sid in wanted)
+
+
+def fold_train_val_clip_ids(
+    fold_id: int,
+    *,
+    folds_csv: Path = DEFAULT_FOLDS_CSV,
+    labeled_clip_ids: set[str] | list[str] | None = None,
+    labels_csv: Path = DEFAULT_FRAME_LABELS_CSV,
+) -> tuple[list[str], list[str]]:
+    """For fold ``k``, return ``(train_clip_ids, val_clip_ids)`` grouped by source."""
+    clip_to_source = clip_to_source_map(labels_csv)
+    source_folds = load_source_folds(folds_csv)
+
+    val_sources = {sid for sid, fid in source_folds.items() if fid == fold_id}
+    train_sources = {sid for sid, fid in source_folds.items() if fid != fold_id}
+    if not val_sources:
+        raise RuntimeError(f"no sources assigned to fold {fold_id} in {folds_csv}")
+    if not train_sources:
+        raise RuntimeError(f"no training sources left when holding out fold {fold_id}")
+
+    train_ids = clip_ids_for_sources(train_sources, clip_to_source)
+    val_ids = clip_ids_for_sources(val_sources, clip_to_source)
+    if not train_ids or not val_ids:
+        raise RuntimeError(f"empty clip list for fold {fold_id}")
+
+    overlap = set(train_ids) & set(val_ids)
+    if overlap:
+        raise RuntimeError(f"train/val overlap for fold {fold_id}: {sorted(overlap)[:5]}")
+
+    if labeled_clip_ids is not None:
+        labeled = set(labeled_clip_ids)
+        missing = (set(train_ids) | set(val_ids)) - labeled
+        if missing:
+            bad = sorted(missing)[:5]
+            raise RuntimeError(
+                "fold clip ids missing from frame labels: "
+                + ", ".join(bad)
+                + (" ..." if len(missing) > 5 else "")
+            )
+
+    return train_ids, val_ids
 
 
 def load_clip_features(

@@ -17,8 +17,8 @@ Supabase **tables already exist** for this project — no SQL bootstrap step for
 2. **Google Sheet:** add a row (Source ID = YouTube id, display name, status **Available** — or your team’s convention).
 3. **Claim** the row if someone else will label it; set status as your team defines.
 4. **Label Studio:** set S3 source **prefix** to `clips/{source_id}/`, **Sync** tasks. Open each task and mark **Playing** only (timeline regions where the ball is in play). **Anything you do not label is treated as downtime** — you do not need separate Downtime regions. When finished with a task, press **Submit** in the **bottom-right** of the labeling UI (submitted tasks are what the JSON export includes).
-5. **Export:** Data Manager → **Export** → format **JSON** (full common format), save the file.
-6. **Push timeline export:** `python data_labeling/push_timeline_annotation.py /path/to/export.json` (optional `--dry-run` first). Requires `.env` Supabase + `ANNOTATOR_NAME`. Inserts one row per task per annotator (skips duplicates already in DB). See W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
+5. **Export:** Data Manager → **Export** → format **JSON** (full common format), save the file. The exported task data must contain S3-backed clip refs such as `data.video = s3://sports-footage-autotrim-bucket/clips/{source_id}/{source_id}_001.mp4` or the equivalent S3 HTTPS URL. If you see `/data/upload/...`, the task came from a local Label Studio upload instead of S3 sync and should be recreated from Cloud Storage.
+6. **Push:** `python data_labeling/push_annotations.py /path/to/export.json` (optional `--dry-run` first). Requires `.env` Supabase + `ANNOTATOR_NAME`. Inserts one row per task per annotator (skips duplicates already in DB). See W3 in [annotation_schema_and_systems.md](annotation_schema_and_systems.md).
 7. **Google Sheet:** mark **Done** (and dates) when finished.
 
 ## Flow diagram

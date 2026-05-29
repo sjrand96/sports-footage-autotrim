@@ -7,6 +7,7 @@ export default function PlaybackTimeline({
   currentTime,
   intervals,
   groundTruthIntervals = [],
+  showGroundTruth = false,
   isPlaying,
   onTogglePlay,
   onSeek,
@@ -147,7 +148,10 @@ export default function PlaybackTimeline({
     if (!Number.isFinite(d) || d <= 0) {
       return { tp: [], fp: [], fn: [], tn: [] }
     }
-    if (predMerged.length === 0 || gtMerged.length === 0) {
+    if (predMerged.length === 0) {
+      return { tp: [], fp: [], fn: [], tn: [] }
+    }
+    if (gtMerged.length === 0 && !showGroundTruth) {
       return { tp: [], fp: [], fn: [], tn: [] }
     }
 
@@ -180,7 +184,7 @@ export default function PlaybackTimeline({
       if (!(slice > 1e-9)) continue
       const t = (a + b) / 2
       const predOn = isPlayingAt(t, predMerged)
-      const gtOn = isPlayingAt(t, gtMerged)
+      const gtOn = gtMerged.length > 0 && isPlayingAt(t, gtMerged)
 
       if (predOn && gtOn) tp.push({ start: a, end: b })
       else if (predOn && !gtOn) fp.push({ start: a, end: b })
@@ -194,7 +198,7 @@ export default function PlaybackTimeline({
       fn: mergeIntervals(fn, d),
       tn: mergeIntervals(tn, d),
     }
-  }, [predMerged, gtMerged, duration])
+  }, [predMerged, gtMerged, duration, showGroundTruth])
 
   const confusionCoveragePct = useMemo(() => {
     if (!Number.isFinite(duration) || duration <= 0) {
@@ -357,7 +361,7 @@ export default function PlaybackTimeline({
       ) : null}
 
       {/* Evaluation: ground truth timeline row */}
-      {!isEditor && groundTruthIntervals && groundTruthIntervals.length > 0 ? (
+      {!isEditor && showGroundTruth ? (
         <div className="playback-row playback-row--secondary playback-row--ground-truth">
           <div
             className="playback-row-label playback-left-slot"
@@ -482,7 +486,7 @@ export default function PlaybackTimeline({
       ) : null}
 
       {/* Evaluation: confusion matrix timelines */}
-      {!isEditor && predMerged.length > 0 && gtMerged.length > 0 ? (
+      {!isEditor && predMerged.length > 0 && showGroundTruth ? (
         <>
           <div className="playback-divider" role="separator" aria-hidden />
 

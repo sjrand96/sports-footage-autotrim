@@ -1,6 +1,7 @@
 /**
  * Import per-frame model predictions (CSV) into second-based "Playing" intervals.
- * CSV columns: clip_id, frame_idx, prob_playing, pred_playing, label_playing
+ * CSV columns: clip_id or clip_key, frame_idx, prob_playing, pred_playing;
+ * optional is_playing (ground truth) or label_playing (legacy).
  * Frame indices are 0-based; clips are 30 fps CFR (see labelStudioImport.js).
  */
 
@@ -11,7 +12,7 @@ import {
   mergeAdjacentOrOverlapping,
 } from './labelStudioImport.js'
 
-const REQUIRED_COLUMNS = ['clip_id', 'frame_idx', 'pred_playing']
+const REQUIRED_COLUMNS = ['frame_idx', 'pred_playing']
 
 function parseBoolCell(value) {
   const s = String(value ?? '')
@@ -36,7 +37,10 @@ export function zeroBasedFramesToSecondsRange(startIdx, endIdxInclusive, fps) {
 }
 
 /**
- * @returns {{ clip_id: string, frame_idx: number, prob_playing: number, pred_playing: boolean, label_playing: boolean | null }[]}
+ * @returns {{
+ *   rows: { clip_id: string, frame_idx: number, prob_playing: number, pred_playing: boolean, is_playing: boolean | null, label_playing: boolean | null }[],
+ *   hasIsPlayingColumn: boolean
+ * }}
  */
 export function parseFramePredictionsCsv(raw) {
   const text = typeof raw === 'string' ? raw.trim() : ''
@@ -46,23 +50,34 @@ export function parseFramePredictionsCsv(raw) {
   if (lines.length < 2) throw new Error('CSV has no data rows')
 
   const header = lines[0].split(',').map((h) => h.trim())
+  const clipCol = header.includes('clip_key')
+    ? 'clip_key'
+    : header.includes('clip_id')
+      ? 'clip_id'
+      : null
+  if (!clipCol) {
+    throw new Error('CSV missing required column: clip_id or clip_key')
+  }
   for (const col of REQUIRED_COLUMNS) {
     if (!header.includes(col)) {
       throw new Error(`CSV missing required column: ${col}`)
     }
   }
   const col = Object.fromEntries(header.map((name, i) => [name, i]))
+  const hasIsPlayingColumn = header.includes('is_playing')
 
   const rows = []
   for (let li = 1; li < lines.length; li++) {
     const cells = lines[li].split(',')
-    const clip_id = cells[col.clip_id]?.trim()
+    const clip_id = cells[col[clipCol]]?.trim()
     const frame_idx = Number(cells[col.frame_idx])
     const pred_playing = parseBoolCell(cells[col.pred_playing])
     if (!clip_id || !Number.isFinite(frame_idx) || frame_idx < 0 || pred_playing == null) {
       continue
     }
     const prob_playing = Number(cells[col.prob_playing])
+    const is_playing =
+      col.is_playing != null ? parseBoolCell(cells[col.is_playing]) : null
     const label_playing =
       col.label_playing != null ? parseBoolCell(cells[col.label_playing]) : null
     rows.push({
@@ -70,12 +85,13 @@ export function parseFramePredictionsCsv(raw) {
       frame_idx,
       prob_playing: Number.isFinite(prob_playing) ? prob_playing : 0,
       pred_playing,
+      is_playing,
       label_playing,
     })
   }
 
   if (rows.length === 0) throw new Error('No valid prediction rows found in CSV')
-  return rows
+  return { rows, hasIsPlayingColumn }
 }
 
 function playingFrameRuns(rows, playingField) {
@@ -100,8 +116,22 @@ function playingFrameRuns(rows, playingField) {
   return runs
 }
 
+function runsToIntervals(runs, durationSec, fps) {
+  if (runs.length === 0) return []
+  let intervals = runs.map(({ start, end }) =>
+    zeroBasedFramesToSecondsRange(start, end, fps),
+  )
+  intervals = mergeAdjacentOrOverlapping(intervals)
+  return clampToDuration(intervals, durationSec)
+}
+
 /**
- * @returns {{ intervals?: { start: number, end: number }[], error?: string }}
+ * @returns {{
+ *   intervals?: { start: number, end: number }[],
+ *   groundTruthIntervals?: { start: number, end: number }[],
+ *   hasGroundTruthColumn?: boolean,
+ *   error?: string
+ * }}
  */
 export function playingIntervalsSecondsFromFramePredictionsCsv(
   rawCsv,
@@ -115,8 +145,11 @@ export function playingIntervalsSecondsFromFramePredictionsCsv(
     return { error: 'Wait for the video to finish loading.' }
 
   let rows
+  let hasGroundTruthColumn
   try {
-    rows = parseFramePredictionsCsv(rawCsv)
+    const parsed = parseFramePredictionsCsv(rawCsv)
+    rows = parsed.rows
+    hasGroundTruthColumn = parsed.hasIsPlayingColumn
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Invalid CSV format.' }
   }
@@ -124,22 +157,25 @@ export function playingIntervalsSecondsFromFramePredictionsCsv(
   const matching = rows.filter((r) => r.clip_id.toLowerCase() === clipId)
   if (matching.length === 0) {
     return {
-      error: `No CSV rows match this clip (${clipId}). Expected clip_id to match the open .mp4 basename.`,
+      error: `No CSV rows match this clip (${clipId}). Expected clip_id/clip_key to match the open .mp4 basename.`,
     }
   }
 
-  const runs = playingFrameRuns(matching, playingField)
-  if (runs.length === 0) {
+  const predRuns = playingFrameRuns(matching, playingField)
+  if (predRuns.length === 0) {
     return { error: 'No predicted Playing frames found for this clip in the CSV.' }
   }
 
-  let intervals = runs.map(({ start, end }) =>
-    zeroBasedFramesToSecondsRange(start, end, fps),
-  )
-  intervals = mergeAdjacentOrOverlapping(intervals)
-  intervals = clampToDuration(intervals, durationSec)
-  if (intervals.length === 0)
-    return { error: 'All imported segments lie outside this video\'s duration.' }
+  const intervals = runsToIntervals(predRuns, durationSec, fps)
+  if (intervals.length === 0) {
+    return { error: "All imported segments lie outside this video's duration." }
+  }
 
-  return { intervals }
+  const result = { intervals, hasGroundTruthColumn }
+  if (hasGroundTruthColumn) {
+    const gtRuns = playingFrameRuns(matching, 'is_playing')
+    result.groundTruthIntervals = runsToIntervals(gtRuns, durationSec, fps)
+  }
+
+  return result
 }
