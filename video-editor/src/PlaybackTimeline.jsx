@@ -5,7 +5,8 @@ export default function PlaybackTimeline({
   mode = 'evaluation',
   duration,
   currentTime,
-  intervals,
+  editorIntervals = [],
+  predictedIntervals = [],
   groundTruthIntervals = [],
   showGroundTruth = false,
   isPlaying,
@@ -91,7 +92,7 @@ export default function PlaybackTimeline({
     if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
-    const iv = intervals.find((x) => x.id === intervalId)
+    const iv = editorIntervals.find((x) => x.id === intervalId)
     if (iv) {
       onSeek(edge === 'start' ? iv.start : iv.end)
     }
@@ -121,10 +122,18 @@ export default function PlaybackTimeline({
   const predMerged = useMemo(() => {
     if (!Number.isFinite(duration) || duration <= 0) return []
     return mergeIntervals(
-      (intervals ?? []).map(({ start, end }) => ({ start, end })),
+      (predictedIntervals ?? []).map(({ start, end }) => ({ start, end })),
       duration,
     )
-  }, [intervals, duration])
+  }, [predictedIntervals, duration])
+
+  const editorMerged = useMemo(() => {
+    if (!Number.isFinite(duration) || duration <= 0) return []
+    return mergeIntervals(
+      (editorIntervals ?? []).map(({ start, end }) => ({ start, end })),
+      duration,
+    )
+  }, [editorIntervals, duration])
 
   const gtMerged = useMemo(() => {
     if (!Number.isFinite(duration) || duration <= 0) return []
@@ -138,6 +147,10 @@ export default function PlaybackTimeline({
     if (!Number.isFinite(duration) || duration <= 0) return 0
     return Math.min(100, (totalPlayingSeconds(predMerged) / duration) * 100)
   }, [predMerged, duration])
+  const editorCoveragePct = useMemo(() => {
+    if (!Number.isFinite(duration) || duration <= 0) return 0
+    return Math.min(100, (totalPlayingSeconds(editorMerged) / duration) * 100)
+  }, [editorMerged, duration])
   const gtCoveragePct = useMemo(() => {
     if (!Number.isFinite(duration) || duration <= 0) return 0
     return Math.min(100, (totalPlayingSeconds(gtMerged) / duration) * 100)
@@ -294,7 +307,7 @@ export default function PlaybackTimeline({
               >
                 <div className="playback-track playback-track--editable">
                   <div className="playback-track-inactive" aria-hidden />
-                  {intervals.map((iv) => {
+                  {editorIntervals.map((iv) => {
                     const left = (iv.start / duration) * 100
                     const w = ((iv.end - iv.start) / duration) * 100
                     return (
@@ -307,9 +320,9 @@ export default function PlaybackTimeline({
                       />
                     )
                   })}
-                  {intervals.length > 0 ? (
+                  {editorIntervals.length > 0 ? (
                     <div className="playback-handles" aria-hidden>
-                      {intervals.map((iv) => {
+                      {editorIntervals.map((iv) => {
                         const startPct = (iv.start / duration) * 100
                         const endPct = (iv.end / duration) * 100
                         return (
@@ -354,7 +367,7 @@ export default function PlaybackTimeline({
             </div>
 
             <div className="playback-coverage playback-right-slot" title="Playing coverage">
-              {`${predictedCoveragePct.toFixed(1)}%`}
+              {`${editorCoveragePct.toFixed(1)}%`}
             </div>
           </div>
         </div>
@@ -425,7 +438,7 @@ export default function PlaybackTimeline({
       ) : null}
 
       {/* Evaluation: predicted timeline row */}
-      {!isEditor && intervals && intervals.length > 0 ? (
+      {!isEditor && predictedIntervals && predictedIntervals.length > 0 ? (
         <div className="playback-row playback-row--secondary playback-row--predicted">
           <div
             className="playback-row-label playback-left-slot"
@@ -451,7 +464,7 @@ export default function PlaybackTimeline({
               >
                 <div className="playback-track">
                   <div className="playback-track-inactive" aria-hidden />
-                  {intervals.map((iv) => {
+                  {predictedIntervals.map((iv) => {
                     const left = (iv.start / duration) * 100
                     const w = ((iv.end - iv.start) / duration) * 100
                     return (

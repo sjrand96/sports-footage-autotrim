@@ -37,7 +37,8 @@ export default function App() {
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [intervals, setIntervals] = useState([])
+  const [editorIntervals, setEditorIntervals] = useState([])
+  const [predictedIntervals, setPredictedIntervals] = useState([])
   const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
   const [showGroundTruth, setShowGroundTruth] = useState(false)
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
@@ -82,7 +83,8 @@ export default function App() {
     setCurrentTime(0)
     setDuration(0)
     setIsPlaying(false)
-    setIntervals([])
+    setEditorIntervals([])
+    setPredictedIntervals([])
     setGroundTruthIntervals([])
     setShowGroundTruth(false)
     setPredictLabelsImportName('')
@@ -134,14 +136,17 @@ export default function App() {
       )
 
       if (target === 'editor') {
-        setIntervals(withIds)
+        setEditorIntervals(withIds)
         setGroundTruthIntervals([])
         setShowGroundTruth(false)
         setEditorLabelsImportName(file.name)
         setPredictLabelsImportName('')
         setGroundTruthLabelsImportName('')
       } else if (target === 'predicted') {
-        setIntervals(withIds)
+        setPredictedIntervals(withIds)
+        setEditorIntervals(
+          applyImportedIntervals(imported, nextIntervalId),
+        )
         setPredictLabelsImportName(file.name)
         if (hasGroundTruthColumn) {
           setGroundTruthIntervals(
@@ -223,7 +228,7 @@ export default function App() {
     const file = sourceFileRef.current
     const inputPath =
       sourceFilePathRef.current ?? getLocalVideoPath(file)
-    if (!canExportCut(intervals)) {
+    if (!canExportCut(editorIntervals)) {
       setExportStatus('Add at least one playing interval before exporting.')
       return
     }
@@ -232,7 +237,7 @@ export default function App() {
     try {
       const result = await exportCutVideo({
         inputPath,
-        intervals,
+        intervals: editorIntervals,
         suggestedName: defaultCutOutputName(fileLabel),
       })
       if (result.ok) {
@@ -243,14 +248,14 @@ export default function App() {
     } finally {
       setIsExporting(false)
     }
-  }, [fileLabel, intervals])
+  }, [fileLabel, editorIntervals])
 
   const onTimeUpdate = () => {
     const v = videoRef.current
     if (!v) return
     setCurrentTime(v.currentTime)
     if (playSelectedOnly && !v.paused) {
-      gatePlaySelectedOnly(v, intervals)
+      gatePlaySelectedOnly(v, editorIntervals)
     }
   }
 
@@ -272,7 +277,7 @@ export default function App() {
   const onIntervalBoundaryChange = useCallback(
     (id, edge, rawTime) => {
       if (!Number.isFinite(duration) || duration <= 0) return
-      setIntervals((prev) => {
+      setEditorIntervals((prev) => {
         const sorted = [...prev].sort((a, b) => a.start - b.start)
         const i = sorted.findIndex((x) => x.id === id)
         if (i < 0) return prev
@@ -305,8 +310,8 @@ export default function App() {
     if (!v) return
     if (v.paused) {
       if (playSelectedOnly) {
-        if (sortIntervals(intervals).length === 0) return
-        const snap = snapTimeForSelectedPlayStart(v.currentTime, intervals)
+        if (sortIntervals(editorIntervals).length === 0) return
+        const snap = snapTimeForSelectedPlayStart(v.currentTime, editorIntervals)
         if (snap != null) v.currentTime = snap
       }
       void v.play()
@@ -319,11 +324,11 @@ export default function App() {
     if (!playSelectedOnly) return
     const v = videoRef.current
     if (!v || v.paused) return
-    gatePlaySelectedOnly(v, intervals)
-  }, [playSelectedOnly, intervals])
+    gatePlaySelectedOnly(v, editorIntervals)
+  }, [playSelectedOnly, editorIntervals])
 
   const isEditor = appMode === 'editor'
-  const exportReady = isEditor && duration > 0 && canExportCut(intervals)
+  const exportReady = isEditor && duration > 0 && canExportCut(editorIntervals)
 
   return (
     <div className="app">
@@ -490,7 +495,8 @@ export default function App() {
                     mode={appMode}
                     duration={duration}
                     currentTime={currentTime}
-                    intervals={intervals}
+                    editorIntervals={editorIntervals}
+                    predictedIntervals={predictedIntervals}
                     groundTruthIntervals={groundTruthIntervals}
                     showGroundTruth={showGroundTruth}
                     isPlaying={isPlaying}
