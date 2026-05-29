@@ -1,8 +1,17 @@
+const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
 const { app, BrowserWindow, ipcMain, dialog } = require('electron/main')
 
-const DEV_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173'
+const REPO_ROOT = path.join(__dirname, '..')
+const DEFAULT_CHECKPOINT = path.join(
+  REPO_ROOT,
+  'models/lstm/checkpoints/2026-05-27-14:47-cnn-lstm-3sec-context/best.pt',
+)
+const PREDICT_SCRIPT = path.join(REPO_ROOT, 'models/lstm/predict_one.py')
+
+const DEV_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
 const isDev =
   process.env.ELECTRON_DEV === '1' ||
   (!app.isPackaged && process.env.NODE_ENV === 'development')
@@ -89,6 +98,99 @@ ipcMain.handle('export-cut-video', async (_event, { inputPath, intervals, sugges
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 })
+
+function runPredictOne({ clipPath, checkpointPath, outputCsv, event }) {
+  const python = process.env.SPORTS_AUTOTRIM_PYTHON || 'python3'
+  const args = [
+    PREDICT_SCRIPT,
+    '--clip-path',
+    clipPath,
+    '--checkpoint',
+    checkpointPath,
+    '--output-csv',
+    outputCsv,
+  ]
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(python, args, {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+
+    const sendProgress = (line) => {
+      const trimmed = line.trim()
+      if (!trimmed || !event?.sender) return
+      event.sender.send('predict-progress', trimmed)
+    }
+
+    proc.stdout.on('data', (chunk) => {
+      chunk
+        .toString()
+        .split(/\r?\n/)
+        .forEach(sendProgress)
+    })
+    proc.stderr.on('data', (chunk) => {
+      const text = chunk.toString()
+      stderr += text
+      text.split(/\r?\n/).forEach(sendProgress)
+    })
+    proc.on('error', (err) => {
+      if (err.code === 'ENOENT') {
+        reject(
+          new Error(
+            'Python not found. Install Python 3 and set SPORTS_AUTOTRIM_PYTHON if needed.',
+          ),
+        )
+      } else {
+        reject(err)
+      }
+    })
+    proc.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(stderr.trim() || `predict_one.py exited with code ${code}`))
+    })
+  })
+}
+
+ipcMain.handle(
+  'generate-predictions',
+  async (event, { clipPath, checkpointPath } = {}) => {
+    if (!clipPath) {
+      return { ok: false, error: 'Missing video file path.' }
+    }
+
+    const checkpoint = checkpointPath || DEFAULT_CHECKPOINT
+    if (!fs.existsSync(PREDICT_SCRIPT)) {
+      return { ok: false, error: `Missing predict script: ${PREDICT_SCRIPT}` }
+    }
+    if (!fs.existsSync(checkpoint)) {
+      return { ok: false, error: `Missing checkpoint: ${checkpoint}` }
+    }
+    if (!fs.existsSync(clipPath)) {
+      return { ok: false, error: `Video file not found: ${clipPath}` }
+    }
+
+    const outputCsv = path.join(
+      os.tmpdir(),
+      `autotrim-predict-${Date.now()}-${Math.random().toString(36).slice(2)}.csv`,
+    )
+
+    try {
+      await runPredictOne({ clipPath, checkpointPath: checkpoint, outputCsv, event })
+      const csvText = fs.readFileSync(outputCsv, 'utf8')
+      return { ok: true, csvText }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      try {
+        fs.unlinkSync(outputCsv)
+      } catch {
+        /* ignore missing temp file */
+      }
+    }
+  },
+)
 
 const createWindow = () => {
   const win = new BrowserWindow({

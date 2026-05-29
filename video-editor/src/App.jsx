@@ -13,6 +13,12 @@ import {
   exportCutVideo,
   getLocalVideoPath,
 } from './exportCutVideo.js'
+import {
+  canGeneratePredictions,
+  generatePredictions,
+  predictProgressLabel,
+} from './generatePredictions.js'
+import { smoothPlayingIntervals } from './intervalSmoothing.js'
 import './App.css'
 
 const MIN_INTERVAL_SEC = 0.05
@@ -25,22 +31,64 @@ function applyImportedIntervals(imported, nextId) {
   }))
 }
 
+function smoothIntervalsWithNewIds(intervals, durationSec, nextId) {
+  if (intervals.length === 0) return []
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return intervals
+  const smoothed = smoothPlayingIntervals(intervals, durationSec)
+  return smoothed.map((iv) => ({
+    id: nextId(),
+    start: iv.start,
+    end: iv.end,
+  }))
+}
+
+function cloneIntervals(intervals) {
+  return intervals.map((iv) => ({ id: iv.id, start: iv.start, end: iv.end }))
+}
+
+function updateIntervalBoundary(prev, id, edge, rawTime, durationSec) {
+  const sorted = [...prev].sort((a, b) => a.start - b.start)
+  const i = sorted.findIndex((x) => x.id === id)
+  if (i < 0) return prev
+  const cur = { ...sorted[i] }
+  const before = sorted[i - 1]
+  const after = sorted[i + 1]
+
+  if (edge === 'start') {
+    const minS = before ? before.end + MIN_INTERVAL_SEC : 0
+    const maxS = cur.end - MIN_INTERVAL_SEC
+    cur.start = Math.min(Math.max(rawTime, minS), maxS)
+  } else {
+    const minE = cur.start + MIN_INTERVAL_SEC
+    const maxE = after ? after.start - MIN_INTERVAL_SEC : durationSec
+    cur.end = Math.min(Math.max(rawTime, minE), maxE)
+  }
+
+  const out = [...sorted]
+  out[i] = cur
+  return out
+}
+
 export default function App() {
   const videoRef = useRef(null)
   const sourceFileRef = useRef(null)
   const sourceFilePathRef = useRef(null)
   const intervalIdRef = useRef(0)
   const groundTruthIntervalIdRef = useRef(0)
-  const [appMode, setAppMode] = useState('evaluation')
+  const [appMode, setAppMode] = useState('editor')
   const [sourceUrl, setSourceUrl] = useState(null)
   const [fileLabel, setFileLabel] = useState('')
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [intervals, setIntervals] = useState([])
+  const [editorIntervals, setEditorIntervals] = useState([])
+  /** Unsmoothed playing segments; restored when smoothing is turned off. */
+  const [rawEditorIntervals, setRawEditorIntervals] = useState([])
+  const [predictedIntervals, setPredictedIntervals] = useState([])
   const [groundTruthIntervals, setGroundTruthIntervals] = useState([])
   const [showGroundTruth, setShowGroundTruth] = useState(false)
   const [playSelectedOnly, setPlaySelectedOnly] = useState(false)
+  const [smoothIntervals, setSmoothIntervals] = useState(true)
   const [predictLabelsImportName, setPredictLabelsImportName] = useState('')
   const [editorLabelsImportName, setEditorLabelsImportName] = useState('')
   const [groundTruthLabelsImportName, setGroundTruthLabelsImportName] =
@@ -48,6 +96,8 @@ export default function App() {
   const [labelsImportError, setLabelsImportError] = useState('')
   const [exportStatus, setExportStatus] = useState('')
   const [isExporting, setIsExporting] = useState(false)
+  const [predictStatus, setPredictStatus] = useState('')
+  const [isPredicting, setIsPredicting] = useState(false)
 
   const revokeUrl = useCallback((url) => {
     if (url && url.startsWith('blob:')) {
@@ -82,14 +132,19 @@ export default function App() {
     setCurrentTime(0)
     setDuration(0)
     setIsPlaying(false)
-    setIntervals([])
+    setEditorIntervals([])
+    setRawEditorIntervals([])
+    setPredictedIntervals([])
     setGroundTruthIntervals([])
     setShowGroundTruth(false)
+    setSmoothIntervals(true)
+    setPlaySelectedOnly(false)
     setPredictLabelsImportName('')
     setEditorLabelsImportName('')
     setGroundTruthLabelsImportName('')
     setLabelsImportError('')
     setExportStatus('')
+    setPredictStatus('')
   }
 
   const importLabelsFromFile = useCallback(
@@ -134,14 +189,26 @@ export default function App() {
       )
 
       if (target === 'editor') {
-        setIntervals(withIds)
+        setRawEditorIntervals(withIds)
+        setEditorIntervals(
+          smoothIntervals
+            ? smoothIntervalsWithNewIds(withIds, duration, nextIntervalId)
+            : withIds,
+        )
         setGroundTruthIntervals([])
         setShowGroundTruth(false)
         setEditorLabelsImportName(file.name)
         setPredictLabelsImportName('')
         setGroundTruthLabelsImportName('')
       } else if (target === 'predicted') {
-        setIntervals(withIds)
+        setPredictedIntervals(withIds)
+        const editorRaw = applyImportedIntervals(imported, nextIntervalId)
+        setRawEditorIntervals(editorRaw)
+        setEditorIntervals(
+          smoothIntervals
+            ? smoothIntervalsWithNewIds(editorRaw, duration, nextIntervalId)
+            : editorRaw,
+        )
         setPredictLabelsImportName(file.name)
         if (hasGroundTruthColumn) {
           setGroundTruthIntervals(
@@ -166,7 +233,22 @@ export default function App() {
       setLabelsImportError('')
       return true
     },
-    [duration, fileLabel, nextGroundTruthIntervalId, nextIntervalId],
+    [duration, fileLabel, nextGroundTruthIntervalId, nextIntervalId, smoothIntervals],
+  )
+
+  const onSmoothIntervalsChange = useCallback(
+    (enabled) => {
+      setSmoothIntervals(enabled)
+      if (rawEditorIntervals.length === 0) return
+      if (enabled) {
+        setEditorIntervals(
+          smoothIntervalsWithNewIds(rawEditorIntervals, duration, nextIntervalId),
+        )
+      } else {
+        setEditorIntervals(cloneIntervals(rawEditorIntervals))
+      }
+    },
+    [duration, nextIntervalId, rawEditorIntervals],
   )
 
   const onPickEditorLabels = useCallback(
@@ -223,7 +305,7 @@ export default function App() {
     const file = sourceFileRef.current
     const inputPath =
       sourceFilePathRef.current ?? getLocalVideoPath(file)
-    if (!canExportCut(intervals)) {
+    if (!canExportCut(editorIntervals)) {
       setExportStatus('Add at least one playing interval before exporting.')
       return
     }
@@ -232,7 +314,7 @@ export default function App() {
     try {
       const result = await exportCutVideo({
         inputPath,
-        intervals,
+        intervals: editorIntervals,
         suggestedName: defaultCutOutputName(fileLabel),
       })
       if (result.ok) {
@@ -243,14 +325,55 @@ export default function App() {
     } finally {
       setIsExporting(false)
     }
-  }, [fileLabel, intervals])
+  }, [fileLabel, editorIntervals])
+
+  const onGeneratePredictions = useCallback(async () => {
+    setPredictStatus('')
+    setLabelsImportError('')
+    const file = sourceFileRef.current
+    const inputPath = sourceFilePathRef.current ?? getLocalVideoPath(file)
+    if (!canGeneratePredictions(duration, inputPath)) {
+      setLabelsImportError(
+        inputPath
+          ? 'Wait for the video to finish loading.'
+          : 'Generate predictions requires the desktop app. Run: npm run electron:dev',
+      )
+      return
+    }
+
+    setIsPredicting(true)
+    setPredictStatus('Generating predictions…')
+    try {
+      const result = await generatePredictions({
+        inputPath,
+        onProgress: (line) => setPredictStatus(predictProgressLabel(line)),
+      })
+      if (!result.ok) {
+        setLabelsImportError(result.error)
+        setPredictStatus('')
+        return
+      }
+
+      const stem = fileLabel.replace(/\.mp4$/i, '')
+      const syntheticFile = { name: `${stem}_predictions.csv` }
+      const target = appMode === 'editor' ? 'editor' : 'predicted'
+      const ok = importLabelsFromFile(syntheticFile, result.csvText, { target })
+      if (ok) {
+        setPredictStatus('Predictions loaded.')
+      } else {
+        setPredictStatus('')
+      }
+    } finally {
+      setIsPredicting(false)
+    }
+  }, [appMode, duration, fileLabel, importLabelsFromFile])
 
   const onTimeUpdate = () => {
     const v = videoRef.current
     if (!v) return
     setCurrentTime(v.currentTime)
     if (playSelectedOnly && !v.paused) {
-      gatePlaySelectedOnly(v, intervals)
+      gatePlaySelectedOnly(v, editorIntervals)
     }
   }
 
@@ -272,32 +395,16 @@ export default function App() {
   const onIntervalBoundaryChange = useCallback(
     (id, edge, rawTime) => {
       if (!Number.isFinite(duration) || duration <= 0) return
-      setIntervals((prev) => {
-        const sorted = [...prev].sort((a, b) => a.start - b.start)
-        const i = sorted.findIndex((x) => x.id === id)
-        if (i < 0) return prev
-        const cur = { ...sorted[i] }
-        const before = sorted[i - 1]
-        const after = sorted[i + 1]
-
-        if (edge === 'start') {
-          const minS = before ? before.end + MIN_INTERVAL_SEC : 0
-          const maxS = cur.end - MIN_INTERVAL_SEC
-          cur.start = Math.min(Math.max(rawTime, minS), maxS)
-          seek(cur.start)
-        } else {
-          const minE = cur.start + MIN_INTERVAL_SEC
-          const maxE = after ? after.start - MIN_INTERVAL_SEC : duration
-          cur.end = Math.min(Math.max(rawTime, minE), maxE)
-          seek(cur.end)
-        }
-
-        const out = [...sorted]
-        out[i] = cur
+      setEditorIntervals((prev) => {
+        const out = updateIntervalBoundary(prev, id, edge, rawTime, duration)
+        if (out === prev) return prev
+        const iv = out.find((x) => x.id === id)
+        if (iv) seek(edge === 'start' ? iv.start : iv.end)
+        if (!smoothIntervals) setRawEditorIntervals(cloneIntervals(out))
         return out
       })
     },
-    [duration, seek],
+    [duration, seek, smoothIntervals],
   )
 
   const togglePlay = () => {
@@ -305,8 +412,8 @@ export default function App() {
     if (!v) return
     if (v.paused) {
       if (playSelectedOnly) {
-        if (sortIntervals(intervals).length === 0) return
-        const snap = snapTimeForSelectedPlayStart(v.currentTime, intervals)
+        if (sortIntervals(editorIntervals).length === 0) return
+        const snap = snapTimeForSelectedPlayStart(v.currentTime, editorIntervals)
         if (snap != null) v.currentTime = snap
       }
       void v.play()
@@ -319,11 +426,17 @@ export default function App() {
     if (!playSelectedOnly) return
     const v = videoRef.current
     if (!v || v.paused) return
-    gatePlaySelectedOnly(v, intervals)
-  }, [playSelectedOnly, intervals])
+    gatePlaySelectedOnly(v, editorIntervals)
+  }, [playSelectedOnly, editorIntervals])
 
   const isEditor = appMode === 'editor'
-  const exportReady = isEditor && duration > 0 && canExportCut(intervals)
+  const exportReady = isEditor && duration > 0 && canExportCut(editorIntervals)
+  const predictReady =
+    duration > 0 &&
+    canGeneratePredictions(
+      duration,
+      sourceFilePathRef.current ?? getLocalVideoPath(sourceFileRef.current),
+    )
 
   return (
     <div className="app">
@@ -372,6 +485,7 @@ export default function App() {
                   ref={videoRef}
                   className="video"
                   src={sourceUrl}
+                  controls
                   playsInline
                   draggable={false}
                   onTimeUpdate={onTimeUpdate}
@@ -413,6 +527,14 @@ export default function App() {
                       </div>
                       <button
                         type="button"
+                        className={`file-button file-button--secondary${!predictReady || isPredicting ? ' file-button--disabled' : ''}`}
+                        disabled={!predictReady || isPredicting}
+                        onClick={onGeneratePredictions}
+                      >
+                        {isPredicting ? 'Generating…' : 'Generate predictions'}
+                      </button>
+                      <button
+                        type="button"
                         className={`file-button file-button--secondary${!exportReady || isExporting ? ' file-button--disabled' : ''}`}
                         disabled={!exportReady || isExporting}
                         onClick={onExportCutVideo}
@@ -444,6 +566,14 @@ export default function App() {
                           </span>
                         ) : null}
                       </div>
+                      <button
+                        type="button"
+                        className={`file-button file-button--secondary${!predictReady || isPredicting ? ' file-button--disabled' : ''}`}
+                        disabled={!predictReady || isPredicting}
+                        onClick={onGeneratePredictions}
+                      >
+                        {isPredicting ? 'Generating…' : 'Generate predictions'}
+                      </button>
                       <div className="import-json-slot import-json-slot--truth">
                         <label
                           className={`file-button file-button--secondary${!duration ? ' file-button--disabled' : ''}`}
@@ -485,12 +615,43 @@ export default function App() {
                   </p>
                 ) : null}
 
+                {predictStatus ? (
+                  <p
+                    className={`labels-import-status${predictStatus === 'Predictions loaded.' ? ' labels-import-status--ok' : ''}`}
+                    role="status"
+                  >
+                    {predictStatus}
+                  </p>
+                ) : null}
+
                 <div className="playback-block">
+                  {isEditor ? (
+                    <div className="playback-toggles">
+                      <label className="playback-selected-toggle">
+                        <input
+                          type="checkbox"
+                          checked={smoothIntervals}
+                          onChange={(e) => onSmoothIntervalsChange(e.target.checked)}
+                        />
+                        Smooth segment boundaries
+                      </label>
+                      <label className="playback-selected-toggle">
+                        <input
+                          type="checkbox"
+                          checked={playSelectedOnly}
+                          onChange={(e) => setPlaySelectedOnly(e.target.checked)}
+                          disabled={editorIntervals.length === 0}
+                        />
+                        Play selected segments only
+                      </label>
+                    </div>
+                  ) : null}
                   <PlaybackTimeline
                     mode={appMode}
                     duration={duration}
                     currentTime={currentTime}
-                    intervals={intervals}
+                    editorIntervals={editorIntervals}
+                    predictedIntervals={predictedIntervals}
                     groundTruthIntervals={groundTruthIntervals}
                     showGroundTruth={showGroundTruth}
                     isPlaying={isPlaying}

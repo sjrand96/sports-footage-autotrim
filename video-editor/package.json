@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "electron .",
-    "electron:dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_DEV=1 NODE_ENV=development electron .\"",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_DEV=1 NODE_ENV=development electron .\"",
     "electron:preview": "npm run build && electron .",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
