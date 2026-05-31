@@ -71,6 +71,30 @@ With `--no-tune-threshold`, threshold **0.5** is used. Reports include both tune
 
 Requires at least one parquet in `parquet/` and a valid split assignment (manifest metadata or `--split-json`).
 
+## 5-fold source-grouped CV (`cross_validate.py`)
+
+Comparable to [models/lstm/cross_validate.py](../lstm/cross_validate.py): hold out one fold of **source videos** at a time, train on the rest, aggregate metrics across folds. Uses [data/5_fold_train_test_split.csv](../../data/5_fold_train_test_split.csv) (`video_id`, `fold_id`).
+
+**Note:** `--cv-folds` in `train.py` is only for **threshold tuning** on train clips (`StratifiedGroupKFold`). Source-level 5-fold retraining is **`cross_validate.py`**.
+
+```bash
+.venv/bin/python models/tabular_xgb/cross_validate.py \
+  --feature-run-id all_clips_features_v2 \
+  --run-id all_clips_features_v2-xgb-5fold
+```
+
+Outputs under `models/tabular_xgb/cv/{run_id}/`:
+
+| Path | Contents |
+|------|----------|
+| `fold-{1..5}/xgb_model.json` | Per-fold model |
+| `fold-{1..5}/xgb_report.json` | Val metrics + threshold |
+| `fold-{1..5}/xgb_val_preds.csv` | Val frame predictions |
+| `cv_summary.json` | Per-fold + mean ± std metrics |
+| `xgb_oof_preds.csv` | All val preds concatenated (one row per frame) |
+
+Sources in the feature run but **not** in the fold CSV are excluded from CV (logged warning). Run a subset with `--folds 1 3`.
+
 ## FPS sensitivity (`fps_sensitivity.py`)
 
 Simulates lower extract/inference FPS: subsample every *n*th frame **within each clip** (default FPS: 30, 15, 10, 5, 2, 1, 0.5), retrain XGB each time, evaluate with a **fixed** `decision_threshold` (from `xgb_report.json`, else 0.24). Includes an **always predict playing** baseline per FPS (recall=1; shows Fβ from label prevalence). Writes `fps_sensitivity.csv`, `.json`, and `.png`. No W&B.

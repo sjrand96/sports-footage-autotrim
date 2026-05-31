@@ -231,14 +231,22 @@ def _split_sets_from_json(path: Path) -> tuple[set[int], set[int], set[str], set
     return train_ids, test_ids, train_keys, test_keys
 
 
+def load_all_frames(
+    run_dir: Path,
+    feature_columns: list[str],
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    all_df = _load_all_parquets(run_dir, feature_columns=feature_columns)
+    return all_df, manifest
+
+
 def load_train_test_frames(
     run_dir: Path,
     feature_columns: list[str],
     *,
     split_json: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    all_df = _load_all_parquets(run_dir, feature_columns=feature_columns)
+    all_df, manifest = load_all_frames(run_dir, feature_columns)
 
     if split_json is not None:
         train_ids, test_ids, train_keys, test_keys = _split_sets_from_json(split_json)
@@ -272,8 +280,8 @@ def _fbeta_metric_key(beta: float) -> str:
     return f"f{beta:g}"
 
 
-def test_predictions_to_csv(test_out: pd.DataFrame) -> pd.DataFrame:
-    """Narrow frame for eval viz: one row per test frame, sorted by clip then frame."""
+def test_predictions_to_csv(test_out: pd.DataFrame, *, split_name: str = "test") -> pd.DataFrame:
+    """Narrow frame for eval viz: one row per eval frame, sorted by clip then frame."""
     col_map = {
         "source_id": "source_id",
         "clip_index": "clip_index",
@@ -293,7 +301,7 @@ def test_predictions_to_csv(test_out: pd.DataFrame) -> pd.DataFrame:
     out["pred_playing"] = out["pred_playing"].astype(int)
     out["is_playing"] = out["is_playing"].astype(int)
     out["model_name"] = "xgboost"
-    out["split_name"] = "test"
+    out["split_name"] = split_name
     return out.sort_values(["source_id", "clip_index", "frame_idx"], kind="stable").reset_index(drop=True)
 
 
@@ -345,6 +353,8 @@ def train_and_evaluate(
     manifest: dict[str, Any],
     wandb_run: Any | None = None,
     log_threshold_sweep: bool = False,
+    eval_split_name: str = "test",
+    split_method: str | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame, XGBClassifier]:
     fill_cols = float_fillna_cols_for_features(feature_columns)
 
@@ -386,22 +396,21 @@ def train_and_evaluate(
     metrics_default = classification_metrics(y_test, y_pred_default, beta=args.f_beta)
 
     train_clips = sorted(train_df["clip_key"].unique().tolist())
-    test_clips = sorted(test_df["clip_key"].unique().tolist())
+    eval_clips = sorted(test_df["clip_key"].unique().tolist())
+    eval_is_test = eval_split_name == "test"
 
     report: dict[str, Any] = {
         "feature_extraction_run_id": manifest.get("run_id"),
         "extractor_version": manifest.get("extractor_version"),
         "feature_schema_version": manifest.get("feature_schema_version"),
-        "split_method": manifest.get("split_method"),
+        "split_method": split_method if split_method is not None else manifest.get("split_method"),
+        "eval_split_name": eval_split_name,
         "feature_subset": args.feature_subset,
         "n_features": len(feature_columns),
         "feature_columns": list(feature_columns),
         "n_train_rows": int(len(train_df)),
-        "n_test_rows": int(len(test_df)),
         "n_train_clips": len(train_clips),
-        "n_test_clips": len(test_clips),
         "train_clip_keys": train_clips,
-        "test_clip_keys": test_clips,
         "class_balance_train": {"negative": neg_count, "positive": pos_count},
         "scale_pos_weight": scale_pos_weight,
         "f_beta": args.f_beta,
@@ -424,6 +433,14 @@ def train_and_evaluate(
         "confusion_matrix": metrics["confusion_matrix"],
         "confusion_matrix_at_threshold_0_5": metrics_default["confusion_matrix"],
     }
+    if eval_is_test:
+        report["n_test_rows"] = int(len(test_df))
+        report["n_test_clips"] = len(eval_clips)
+        report["test_clip_keys"] = eval_clips
+    else:
+        report["n_val_rows"] = int(len(test_df))
+        report["n_val_clips"] = len(eval_clips)
+        report["val_clip_keys"] = eval_clips
 
     if wandb_run is not None:
         import wandb

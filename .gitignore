@@ -13,6 +13,7 @@ wandb/
 .DS_Store
 yolov8s-pose.pt
 eval/output/
+models/tabular_xgb/cv/
 
 # CV calibration outputs (npz, previews)
 cv-pipeline/calibration/out/
