@@ -2,6 +2,9 @@
 
 **CS348K —** Build toward **automatic volleyball trims**: long casual match footage (lots of downtime) → **when play is happening** → a shorter **gameplay-focused** cut. Human labels on short clips are the ground truth for models and evaluation later.
 
+## Final Report
+https://docs.google.com/document/d/1hXm_GPWnUEmcXLW6Gqc7vevKVVd8L3xS1OGuNVu8dgg/edit?usp=sharing
+
 ## Project Motivation and Overview
 Take the below 1-minute video as an example of uncut, raw volleyball footage.
 
