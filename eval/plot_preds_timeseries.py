@@ -142,15 +142,30 @@ def add_segment_prediction_column(
     if "prob_playing" not in df.columns or df["prob_playing"].isna().all():
         raise SystemExit("--show-segments requires prob_playing values")
     out = df.copy()
-    segments, _ = extract_segments_from_probs(
-        out["prob_playing"].to_numpy(dtype=float),
-        threshold=threshold,
-        window_frames=window_frames,
-        aggregation=aggregation,
-        max_gap_frames=max_gap_frames,
-        min_segment_frames=min_segment_frames,
-    )
-    out["segment_playing"] = segments_to_binary(segments, n_frames=len(out)).astype(int)
+    seg = np.zeros(len(out), dtype=int)
+    if "clip_key" in out.columns and out["clip_key"].nunique() > 1:
+        for _, chunk in out.groupby("clip_key", sort=False):
+            idx = chunk.index.to_numpy()
+            segments, _ = extract_segments_from_probs(
+                chunk["prob_playing"].to_numpy(dtype=float),
+                threshold=threshold,
+                window_frames=window_frames,
+                aggregation=aggregation,
+                max_gap_frames=max_gap_frames,
+                min_segment_frames=min_segment_frames,
+            )
+            seg[idx] = segments_to_binary(segments, n_frames=len(chunk)).astype(int)
+    else:
+        segments, _ = extract_segments_from_probs(
+            out["prob_playing"].to_numpy(dtype=float),
+            threshold=threshold,
+            window_frames=window_frames,
+            aggregation=aggregation,
+            max_gap_frames=max_gap_frames,
+            min_segment_frames=min_segment_frames,
+        )
+        seg = segments_to_binary(segments, n_frames=len(out)).astype(int)
+    out["segment_playing"] = seg
     return out
 
 
@@ -220,7 +235,7 @@ def _plot_panel_strips(
         pred_y0, pred_y1 = 1.0, 2.0
         seg_y0, seg_y1 = 0.0, 1.0
         yticks = [0.5, 1.5, 2.5]
-        yticklabels = ["segments", "prediction", "ground truth"]
+        yticklabels = ["postprocessor", "frame pred", "ground truth"]
         ylim = (0, 3)
 
     ax.imshow(

@@ -322,11 +322,15 @@ def extract_features_for_clip(
     kp_conf_thresh: float = KP_CONF_DEFAULT,
     progress_every: int = 300,
     max_frames: int | None = None,
+    frame_stride: int = 1,
     frames_dir: Path | None = None,
+    yolo_device: str | int | None = None,
 ) -> pd.DataFrame:
-    """Extract one row per decoded video frame (~full source fps).
+    """Extract one row per sampled video frame (~full source fps when ``frame_stride=1``).
 
-    ``max_frames`` is for local smoke tests only; omit for production full-clip runs.
+    ``max_frames`` caps sampled rows (smoke tests). ``frame_stride`` decodes every frame but
+    runs YOLO/features every ``frame_stride``-th source frame; ``timestamp_sec`` uses the
+    source frame index so cuts align with the original video.
     """
     try:
         import cv2
@@ -344,10 +348,19 @@ def extract_features_for_clip(
 
     src_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
     n_src = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    print(f"extract {video_path.name}: source_fps≈{src_fps:.2f} frames≈{n_src} (every frame)", flush=True)
+    stride = max(1, int(frame_stride))
+    if stride == 1:
+        sample_note = "every frame"
+    else:
+        sample_note = f"every {stride} source frames (~{src_fps / stride:.1f} fps)"
+    print(
+        f"extract {video_path.name}: source_fps≈{src_fps:.2f} frames≈{n_src} ({sample_note})",
+        flush=True,
+    )
 
     rows: list[dict[str, Any]] = []
-    frame_idx = 0
+    source_frame_idx = 0
+    sampled_count = 0
     prev_gray: np.ndarray | None = None
     prev_centroids: dict[str, tuple[float, float]] | None = None
     prev_inter: float | None = None
@@ -361,13 +374,20 @@ def extract_features_for_clip(
             if not ok:
                 break
 
+            if source_frame_idx % stride != 0:
+                source_frame_idx += 1
+                continue
+
             if frames_dir is not None:
                 import cv2
 
-                out_jpg = frames_dir / f"{frame_idx:06d}.jpg"
+                out_jpg = frames_dir / f"{source_frame_idx:06d}.jpg"
                 cv2.imwrite(str(out_jpg), frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
 
-            result = model(frame_bgr, imgsz=imgsz, conf=det_conf, verbose=False)[0]
+            infer_kw: dict[str, Any] = {"imgsz": imgsz, "conf": det_conf, "verbose": False}
+            if yolo_device is not None:
+                infer_kw["device"] = yolo_device
+            result = model(frame_bgr, **infer_kw)[0]
             feats = compute_feature_row_from_yolo_result(
                 result,
                 H=H,
@@ -378,7 +398,7 @@ def extract_features_for_clip(
                 ankle_conf=ankle_conf,
                 kp_conf_thresh=kp_conf_thresh,
             )
-            cur_ts = float(frame_idx / src_fps)
+            cur_ts = float(source_frame_idx / src_fps)
             gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
             if prev_gray is None:
                 flow_stats = {
@@ -409,22 +429,24 @@ def extract_features_for_clip(
             prev_ts = cur_ts
             rows.append(
                 {
-                    "frame_idx": int(frame_idx),
+                    "frame_idx": int(sampled_count),
+                    "source_frame_idx": int(source_frame_idx),
                     "timestamp_sec": cur_ts,
                     **feats,
                     **flow_stats,
                     **speed_stats,
                 }
             )
-            frame_idx += 1
-            if max_frames is not None and frame_idx >= max_frames:
+            sampled_count += 1
+            source_frame_idx += 1
+            if max_frames is not None and sampled_count >= max_frames:
                 break
-            if progress_every > 0 and frame_idx % progress_every == 0:
-                print(f"  processed {frame_idx} frames", flush=True)
+            if progress_every > 0 and sampled_count % progress_every == 0:
+                print(f"  processed {sampled_count} sampled frames", flush=True)
     finally:
         cap.release()
 
-    if frame_idx == 0:
+    if sampled_count == 0:
         raise RuntimeError(f"no frames decoded from video: {video_path}")
 
     meta = {"source_fps": src_fps, "n_source_frames": n_src}
